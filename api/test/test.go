@@ -3,6 +3,7 @@ package test
 import (
 	"context"
 	"fmt"
+	"github.com/filecoin-project/lotus/extern/sector-storage/sealtasks"
 	"os"
 	"strings"
 	"testing"
@@ -64,11 +65,17 @@ const GenesisPreseals = 2
 
 const TestSpt = abi.RegisteredSealProof_StackedDrg2KiBV1_1
 
+type WorkerSpec struct {
+	Name      string
+	TaskTypes []sealtasks.TaskType
+}
+
 // Options for setting up a mock storage miner
 type StorageMiner struct {
 	Full    int
 	Opts    node.Option
 	Preseal int
+	Workers []WorkerSpec
 }
 
 type OptionGenerator func([]TestNode) node.Option

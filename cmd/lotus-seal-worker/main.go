@@ -182,7 +182,7 @@ var runCmd = &cli.Command{
 		var nodeApi api.StorageMiner
 		var closer func()
 		var err error
-		for {
+		for {	//建立连接miner-api的客户端
 			nodeApi, closer, err = lcli.GetStorageMinerAPI(cctx, cliutil.StorageMinerUseHttp)
 			if err == nil {
 				_, err = nodeApi.Version(ctx)
@@ -509,7 +509,7 @@ var runCmd = &cli.Command{
 
 					select {
 					case <-readyCh:
-						if err := nodeApi.WorkerConnect(ctx, "http://"+address+"/rpc/v0"); err != nil {
+						if err := nodeApi.WorkerConnect(ctx, "http://"+address+"/rpc/v0"); err != nil {	//work发起与miner连接
 							log.Errorf("Registering worker failed: %+v", err)
 							cancel()
 							return

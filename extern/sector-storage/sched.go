@@ -84,7 +84,7 @@ type workerHandle struct {
 	lk sync.Mutex
 
 	wndLk         sync.Mutex
-	activeWindows []*schedWindow
+	activeWindows []*schedWindow	//调度窗口，用于接收任务
 
 	enabled bool
 
@@ -92,6 +92,8 @@ type workerHandle struct {
 	cleanupStarted bool
 	closedMgr      chan struct{}
 	closingMgr     chan struct{}
+
+	sectorProcessStatus map[abi.SectorID]*SealTaskStatus	//扇区处理状态
 }
 
 type schedWindowRequest struct {
@@ -235,13 +237,13 @@ func (sh *scheduler) runSched() {
 			toDisable = append(toDisable, dreq)
 			doSched = true
 		case req := <-sh.schedule:
-			sh.schedQueue.Push(req)
+			sh.schedQueue.Push(req)		//把请求放入任务队列
 			doSched = true
 
 			if sh.testSync != nil {
 				sh.testSync <- struct{}{}
 			}
-		case req := <-sh.windowRequests:
+		case req := <-sh.windowRequests:	// 来自worker发送过来的窗口请求数据
 			sh.openWindows = append(sh.openWindows, req)
 			doSched = true
 		case ireq := <-sh.info:
@@ -368,7 +370,7 @@ func (sh *scheduler) trySched() {
 	wg.Add(queuneLen)
 	for i := 0; i < queuneLen; i++ {
 		throttle <- struct{}{}
-
+		// 查找所有满足该任务的资源窗口，把结果纪录在acceptableWindows二元数组中
 		go func(sqi int) {
 			defer wg.Done()
 			defer func() {
@@ -420,7 +422,7 @@ func (sh *scheduler) trySched() {
 			rand.Shuffle(len(acceptableWindows[sqi]), func(i, j int) {
 				acceptableWindows[sqi][i], acceptableWindows[sqi][j] = acceptableWindows[sqi][j], acceptableWindows[sqi][i] // nolint:scopelint
 			})
-			sort.SliceStable(acceptableWindows[sqi], func(i, j int) bool {
+			sort.SliceStable(acceptableWindows[sqi], func(i, j int) bool {	//比较acceptableWindows数组的资源窗口，把好的排到前面
 				wii := sh.openWindows[acceptableWindows[sqi][i]].worker // nolint:scopelint
 				wji := sh.openWindows[acceptableWindows[sqi][j]].worker // nolint:scopelint
 
@@ -452,7 +454,7 @@ func (sh *scheduler) trySched() {
 	// Step 2
 	scheduled := 0
 	rmQueue := make([]int, 0, queuneLen)
-
+	//把每个任务分配给满足资源需求的首个窗口
 	for sqi := 0; sqi < queuneLen; sqi++ {
 		task := (*sh.schedQueue)[sqi]
 		needRes := ResourceTable[task.taskType][task.sector.ProofType]
@@ -471,7 +473,7 @@ func (sh *scheduler) trySched() {
 
 			log.Debugf("SCHED ASSIGNED sqi:%d sector %d task %s to window %d", sqi, task.sector.ID.Number, task.taskType, wnd)
 
-			windows[wnd].allocated.add(wr, needRes)
+			windows[wnd].allocated.add(wr, needRes)		//纪录窗口已消耗资源数
 			// TODO: We probably want to re-sort acceptableWindows here based on new
 			//  workerHandle.utilization + windows[wnd].allocated.utilization (workerHandle.utilization is used in all
 			//  task selectors, but not in the same way, so need to figure out how to do that in a non-O(n^2 way), and
@@ -492,7 +494,7 @@ func (sh *scheduler) trySched() {
 		scheduled++
 	}
 
-	if len(rmQueue) > 0 {
+	if len(rmQueue) > 0 {	//移除已分配给窗口的任务
 		for i := len(rmQueue) - 1; i >= 0; i-- {
 			sh.schedQueue.Remove(rmQueue[i])
 		}
@@ -500,12 +502,12 @@ func (sh *scheduler) trySched() {
 
 	// Step 3
 
-	if scheduled == 0 {
+	if scheduled == 0 {	//没有任务分配给资源窗口，直接退出
 		return
 	}
 
 	scheduledWindows := map[int]struct{}{}
-	for wnd, window := range windows {
+	for wnd, window := range windows {	//循环所有窗口，派发任务给窗口
 		if len(window.todo) == 0 {
 			// Nothing scheduled here, keep the window open
 			continue
@@ -515,12 +517,12 @@ func (sh *scheduler) trySched() {
 
 		window := window // copy
 		select {
-		case sh.openWindows[wnd].done <- &window:
+		case sh.openWindows[wnd].done <- &window:		//分配任务给调度窗口
 		default:
 			log.Error("expected sh.openWindows[wnd].done to be buffered")
 		}
 	}
-
+	// 最后清理已分配任务的窗口
 	// Rewrite sh.openWindows array, removing scheduled windows
 	newOpenWindows := make([]*schedWindowRequest, 0, windowsLen-len(scheduledWindows))
 	for wnd, window := range sh.openWindows {

@@ -186,6 +186,8 @@ func TestSched(t *testing.T) {
 	}
 
 	noopAction := func(ctx context.Context, w Worker) error {
+		time.Sleep(2 * time.Second)
+		log.Info("noopAction done")
 		return nil
 	}
 
@@ -644,4 +646,220 @@ func TestWindowCompact(t *testing.T) {
 		[][]sealtasks.TaskType{{sealtasks.TTPreCommit1, sealtasks.TTPreCommit1}, {sealtasks.TTPreCommit1, sealtasks.TTAddPiece, sealtasks.TTPreCommit2}},
 		[][]sealtasks.TaskType{{sealtasks.TTPreCommit1, sealtasks.TTPreCommit1, sealtasks.TTAddPiece}, {sealtasks.TTPreCommit1, sealtasks.TTPreCommit2}}),
 	)
+}
+
+
+func TestSched2(t *testing.T) {
+	ctx, done := context.WithTimeout(context.Background(), 30*time.Second)
+	defer done()
+
+	spt := abi.RegisteredSealProof_StackedDrg32GiBV1
+
+	type workerSpec struct {
+		name      string
+		taskTypes map[sealtasks.TaskType]struct{}
+	}
+
+	noopAction := func(ctx context.Context, w Worker) error {
+		log.Info("noopAction done")
+		return nil
+	}
+
+	type runMeta struct {
+		done map[string]chan struct{}
+
+		wg sync.WaitGroup
+	}
+
+	type task func(*testing.T, *scheduler, *stores.Index, *runMeta)
+
+	sched := func(taskName, expectWorker string, sid abi.SectorNumber, taskType sealtasks.TaskType) task {
+		_, _, l, _ := runtime.Caller(1)
+		_, _, l2, _ := runtime.Caller(2)
+
+		return func(t *testing.T, sched *scheduler, index *stores.Index, rm *runMeta) {
+			done := make(chan struct{})
+			rm.done[taskName] = done
+
+			sectorRef := storage.SectorRef{
+				ID: abi.SectorID{
+					Miner:  8,
+					Number: sid,
+				},
+				ProofType: spt,
+			}
+
+			sel := newFixSelector(index, sectorRef.ID, storiface.FTCache, storiface.PathSealing)
+
+			rm.wg.Add(1)
+			go func() {
+				defer rm.wg.Done()
+
+				err := sched.Schedule(ctx, sectorRef, taskType, sel, noopAction, func(ctx context.Context, w Worker) error {
+					wi, err := w.Info(ctx)
+					require.NoError(t, err)
+
+					wid, err := w.Session(ctx)
+					require.NoError(t, err)
+
+					require.Equal(t, expectWorker, wi.Hostname)
+
+					log.Info("IN  ", taskName)
+					log.Infof("worker: %s do task: %s", wid, taskType)
+					for {
+						_, ok := <-done
+						if !ok {
+							break
+						}
+					}
+
+					log.Info("OUT ", taskName)
+
+					return nil
+				})
+				require.NoError(t, err, fmt.Sprint(l, l2))
+			}()
+
+			<-sched.testSync
+		}
+	}
+
+	taskStarted := func(name string) task {
+		_, _, l, _ := runtime.Caller(1)
+		_, _, l2, _ := runtime.Caller(2)
+		return func(t *testing.T, sched *scheduler, index *stores.Index, rm *runMeta) {
+			select {
+			case rm.done[name] <- struct{}{}:
+			case <-ctx.Done():
+				t.Fatal("ctx error", ctx.Err(), l, l2)
+			}
+		}
+	}
+
+	taskDone := func(name string) task {
+		_, _, l, _ := runtime.Caller(1)
+		_, _, l2, _ := runtime.Caller(2)
+		return func(t *testing.T, sched *scheduler, index *stores.Index, rm *runMeta) {
+			select {
+			case rm.done[name] <- struct{}{}:
+			case <-ctx.Done():
+				t.Fatal("ctx error", ctx.Err(), l, l2)
+			}
+			close(rm.done[name])
+		}
+	}
+
+	taskNotScheduled := func(name string) task {
+		_, _, l, _ := runtime.Caller(1)
+		_, _, l2, _ := runtime.Caller(2)
+		return func(t *testing.T, sched *scheduler, index *stores.Index, rm *runMeta) {
+			select {
+			case rm.done[name] <- struct{}{}:
+				t.Fatal("not expected", l, l2)
+			case <-time.After(10 * time.Millisecond): // TODO: better synchronization thingy
+			}
+		}
+	}
+
+	testFunc := func(workers []workerSpec, tasks []task) func(t *testing.T) {
+		ParallelNum = 1
+		ParallelDenom = 1
+
+		return func(t *testing.T) {
+			index := stores.NewIndex()
+
+			sched := newScheduler()
+			sched.testSync = make(chan struct{})
+
+			go sched.runSched()
+
+			for _, worker := range workers {
+				addTestWorker(t, sched, index, worker.name, worker.taskTypes)
+			}
+
+			rm := runMeta{
+				done: map[string]chan struct{}{},
+			}
+
+			for i, task := range tasks {
+				log.Info("TASK", i)
+				task(t, sched, index, &rm)
+				time.Sleep(2 * time.Second)
+			}
+
+			log.Info("wait for async stuff")
+			rm.wg.Wait()
+
+			require.NoError(t, sched.Close(context.TODO()))
+		}
+	}
+
+	diag := func() task {
+		return func(t *testing.T, s *scheduler, index *stores.Index, meta *runMeta) {
+			//time.Sleep(20 * time.Millisecond)
+			for _, request := range s.diag().Requests {
+				log.Infof("!!! sDIAG: sid(%d) task(%s)", request.Sector.Number, request.TaskType)
+			}
+
+			wj := (&Manager{sched: s}).WorkerJobs()
+
+			type line struct {
+				storiface.WorkerJob
+				wid uuid.UUID
+			}
+
+			lines := make([]line, 0)
+
+			for wid, jobs := range wj {
+				for _, job := range jobs {
+					lines = append(lines, line{
+						WorkerJob: job,
+						wid:       wid,
+					})
+				}
+			}
+
+			// oldest first
+			sort.Slice(lines, func(i, j int) bool {
+				if lines[i].RunWait != lines[j].RunWait {
+					return lines[i].RunWait < lines[j].RunWait
+				}
+				return lines[i].Start.Before(lines[j].Start)
+			})
+
+			for _, l := range lines {
+				log.Infof("!!! wDIAG: rw(%d) sid(%d) t(%s)", l.RunWait, l.Sector.Number, l.Task)
+			}
+		}
+	}
+
+	t.Run("ap-pc1-2workers", testFunc([]workerSpec{
+		{name: "fred1", taskTypes: map[sealtasks.TaskType]struct{}{
+			sealtasks.TTAddPiece: {},
+			sealtasks.TTPreCommit1: {},
+		}},
+		//{name: "fred2", taskTypes: map[sealtasks.TaskType]struct{}{
+		//	sealtasks.TTAddPiece: {},
+		//	sealtasks.TTPreCommit1: {},
+		//}},
+	}, []task{
+		sched("ap-1", "fred1", 1, sealtasks.TTAddPiece),
+		taskStarted("ap-1"),
+		//sched("pc1-1", "fred1", 1, sealtasks.TTPreCommit1),
+		//taskNotScheduled("pc1-1"),
+
+		sched("ap-2", "fred1", 2, sealtasks.TTAddPiece),
+		taskNotScheduled("ap-2"),
+		//taskStarted("ap-2"),
+		//sched("pc1-2", "fred2", 2, sealtasks.TTPreCommit1),
+		//taskNotScheduled("pc1-2"),
+
+		diag(),
+
+		taskDone("ap-1"),
+		//taskDone("pc1-1"),
+		taskDone("ap-2"),
+		//taskDone("pc1-2"),
+
+	}))
 }

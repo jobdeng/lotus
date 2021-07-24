@@ -1,19 +1,14 @@
-package test
+package testnode
 
 import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"io/ioutil"
 	"net"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/gorilla/mux"
-	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-jsonrpc"
@@ -36,7 +31,6 @@ import (
 	"github.com/filecoin-project/lotus/chain/messagepool"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/chain/wallet"
-	"github.com/filecoin-project/lotus/cmd/lotus-seed/seed"
 	sectorstorage "github.com/filecoin-project/lotus/extern/sector-storage"
 	"github.com/filecoin-project/lotus/extern/sector-storage/ffiwrapper"
 	"github.com/filecoin-project/lotus/extern/sector-storage/mock"
@@ -50,6 +44,7 @@ import (
 	"github.com/filecoin-project/lotus/storage/mockstorage"
 	miner2 "github.com/filecoin-project/specs-actors/v2/actors/builtin/miner"
 	power2 "github.com/filecoin-project/specs-actors/v2/actors/builtin/power"
+	"github.com/gorilla/mux"
 	"github.com/ipfs/go-datastore"
 	"github.com/libp2p/go-libp2p-core/crypto"
 	"github.com/libp2p/go-libp2p-core/peer"
@@ -200,187 +195,11 @@ func storageBuilder(parentNode test.TestNode, mn mocknet.Mocknet, opts node.Opti
 	}
 }
 
-func Builder(t *testing.T, fullOpts []test.FullNodeOpts, storage []test.StorageMiner) ([]test.TestNode, []test.TestStorageNode) {
-	return mockBuilderOpts(t, fullOpts, storage, false)
+func MockSSBuilder(t *testing.T, fullOpts []test.FullNodeOpts, storage []test.StorageMiner) ([]test.TestNode, []test.TestStorageNode) {
+	return mockSSBuilderOpts(t, fullOpts, storage, false)
 }
 
-func MockSbBuilder(t *testing.T, fullOpts []test.FullNodeOpts, storage []test.StorageMiner) ([]test.TestNode, []test.TestStorageNode) {
-	return mockSbBuilderOpts(t, fullOpts, storage, false)
-}
-
-func RPCBuilder(t *testing.T, fullOpts []test.FullNodeOpts, storage []test.StorageMiner) ([]test.TestNode, []test.TestStorageNode) {
-	return mockBuilderOpts(t, fullOpts, storage, true)
-}
-
-func RPCMockSbBuilder(t *testing.T, fullOpts []test.FullNodeOpts, storage []test.StorageMiner) ([]test.TestNode, []test.TestStorageNode) {
-	return mockSbBuilderOpts(t, fullOpts, storage, true)
-}
-
-func mockBuilderOpts(t *testing.T, fullOpts []test.FullNodeOpts, storage []test.StorageMiner, rpc bool) ([]test.TestNode, []test.TestStorageNode) {
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-
-	mn := mocknet.New(ctx)
-
-	fulls := make([]test.TestNode, len(fullOpts))
-	storers := make([]test.TestStorageNode, len(storage))
-
-	pk, _, err := crypto.GenerateEd25519Key(rand.Reader)
-	require.NoError(t, err)
-
-	minerPid, err := peer.IDFromPrivateKey(pk)
-	require.NoError(t, err)
-
-	var genbuf bytes.Buffer
-
-	if len(storage) > 1 {
-		panic("need more peer IDs")
-	}
-	// PRESEAL SECTION, TRY TO REPLACE WITH BETTER IN THE FUTURE
-	// TODO: would be great if there was a better way to fake the preseals
-
-	var genms []genesis.Miner
-	var maddrs []address.Address
-	var genaccs []genesis.Actor
-	var keys []*wallet.Key
-
-	var presealDirs []string
-	for i := 0; i < len(storage); i++ {
-		maddr, err := address.NewIDAddress(genesis2.MinerStart + uint64(i))
-		if err != nil {
-			t.Fatal(err)
-		}
-		tdir, err := ioutil.TempDir("", "preseal-memgen")
-		if err != nil {
-			t.Fatal(err)
-		}
-		genm, k, err := seed.PreSeal(maddr, abi.RegisteredSealProof_StackedDrg2KiBV1, 0, test.GenesisPreseals, tdir, []byte("make genesis mem random"), nil, true)
-		if err != nil {
-			t.Fatal(err)
-		}
-		genm.PeerId = minerPid
-
-		wk, err := wallet.NewKey(*k)
-		if err != nil {
-			return nil, nil
-		}
-
-		genaccs = append(genaccs, genesis.Actor{
-			Type:    genesis.TAccount,
-			Balance: big.Mul(big.NewInt(400000000), types.NewInt(build.FilecoinPrecision)),
-			Meta:    (&genesis.AccountMeta{Owner: wk.Address}).ActorMeta(),
-		})
-
-		keys = append(keys, wk)
-		presealDirs = append(presealDirs, tdir)
-		maddrs = append(maddrs, maddr)
-		genms = append(genms, *genm)
-	}
-	templ := &genesis.Template{
-		Accounts:         genaccs,
-		Miners:           genms,
-		NetworkName:      "test",
-		Timestamp:        uint64(time.Now().Unix() - 10000), // some time sufficiently far in the past
-		VerifregRootKey:  gen.DefaultVerifregRootkeyActor,
-		RemainderAccount: gen.DefaultRemainderAccountActor,
-	}
-
-	// END PRESEAL SECTION
-
-	for i := 0; i < len(fullOpts); i++ {
-		var genesis node.Option
-		if i == 0 {
-			genesis = node.Override(new(modules.Genesis), testing2.MakeGenesisMem(&genbuf, *templ))
-		} else {
-			genesis = node.Override(new(modules.Genesis), modules.LoadGenesis(genbuf.Bytes()))
-		}
-
-		stop, err := node.New(ctx,
-			node.FullAPI(&fulls[i].FullNode, node.Lite(fullOpts[i].Lite)),
-			node.Online(),
-			node.Repo(repo.NewMemory(nil)),
-			node.MockHost(mn),
-			node.Test(),
-
-			genesis,
-
-			fullOpts[i].Opts(fulls),
-		)
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		t.Cleanup(func() { _ = stop(context.Background()) })
-
-		if rpc {
-			fulls[i] = fullRpc(t, fulls[i])
-		}
-
-		fulls[i].Stb = storageBuilder(fulls[i], mn, node.Options())
-	}
-
-	for i, def := range storage {
-		// TODO: support non-bootstrap miners
-		if i != 0 {
-			t.Fatal("only one storage node supported")
-		}
-		if def.Full != 0 {
-			t.Fatal("storage nodes only supported on the first full node")
-		}
-
-		f := fulls[def.Full]
-		if _, err := f.FullNode.WalletImport(ctx, &keys[i].KeyInfo); err != nil {
-			t.Fatal(err)
-		}
-		if err := f.FullNode.WalletSetDefault(ctx, keys[i].Address); err != nil {
-			t.Fatal(err)
-		}
-
-		genMiner := maddrs[i]
-		wa := genms[i].Worker
-
-		opts := def.Opts
-		if opts == nil {
-			opts = node.Options()
-		}
-		storers[i] = CreateTestStorageNode(ctx, t, wa, genMiner, pk, f, mn, opts)
-		if err := storers[i].StorageAddLocal(ctx, presealDirs[i]); err != nil {
-			t.Fatalf("%+v", err)
-		}
-		/*
-			sma := storers[i].StorageMiner.(*impl.StorageMinerAPI)
-
-			psd := presealDirs[i]
-		*/
-		if rpc {
-			storers[i] = storerRpc(t, storers[i])
-		}
-	}
-
-	if err := mn.LinkAll(); err != nil {
-		t.Fatal(err)
-	}
-
-	if len(storers) > 0 {
-		// Mine 2 blocks to setup some CE stuff in some actors
-		var wait sync.Mutex
-		wait.Lock()
-
-		test.MineUntilBlock(ctx, t, fulls[0], storers[0], func(epoch abi.ChainEpoch) {
-			wait.Unlock()
-		})
-
-		wait.Lock()
-		test.MineUntilBlock(ctx, t, fulls[0], storers[0], func(epoch abi.ChainEpoch) {
-			wait.Unlock()
-		})
-		wait.Lock()
-	}
-
-	return fulls, storers
-}
-
-func mockSbBuilderOpts(t *testing.T, fullOpts []test.FullNodeOpts, storage []test.StorageMiner, rpc bool) ([]test.TestNode, []test.TestStorageNode) {
+func mockSSBuilderOpts(t *testing.T, fullOpts []test.FullNodeOpts, storage []test.StorageMiner, rpc bool) ([]test.TestNode, []test.TestStorageNode) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
@@ -450,7 +269,7 @@ func mockSbBuilderOpts(t *testing.T, fullOpts []test.FullNodeOpts, storage []tes
 
 	// END PRESEAL SECTION
 
-	for i := 0; i < len(fullOpts); i++ {	//初始全节点
+	for i := 0; i < len(fullOpts); i++ { //初始全节点
 		var genesis node.Option
 		if i == 0 {
 			genesis = node.Override(new(modules.Genesis), testing2.MakeGenesisMem(&genbuf, *templ))
@@ -487,7 +306,7 @@ func mockSbBuilderOpts(t *testing.T, fullOpts []test.FullNodeOpts, storage []tes
 
 		fulls[i].Stb = storageBuilder(fulls[i], mn, node.Options(
 			node.Override(new(sectorstorage.SectorManager), func() (sectorstorage.SectorManager, error) {
-				return mock.NewMockSectorMgr(nil), nil
+				return NewTestSectorMgr(ctx, t, nil), nil
 			}),
 			node.Override(new(ffiwrapper.Verifier), mock.MockVerifier),
 			node.Override(new(ffiwrapper.Prover), mock.MockProver),
@@ -495,7 +314,7 @@ func mockSbBuilderOpts(t *testing.T, fullOpts []test.FullNodeOpts, storage []tes
 		))
 	}
 
-	for i, def := range storage {	//初始化测试的矿工
+	for i, def := range storage { //初始化测试的矿工
 		// TODO: support non-bootstrap miners
 
 		minerID := abi.ActorID(genesis2.MinerStart + uint64(i))
@@ -526,7 +345,7 @@ func mockSbBuilderOpts(t *testing.T, fullOpts []test.FullNodeOpts, storage []tes
 		}
 		storers[i] = CreateTestStorageNode(ctx, t, genms[i].Worker, maddrs[i], pidKeys[i], f, mn, node.Options(
 			node.Override(new(sectorstorage.SectorManager), func() (sectorstorage.SectorManager, error) {
-				return mock.NewMockSectorMgr(sectors), nil
+				return NewTestSectorMgr(ctx, t, def.Workers), nil
 			}),
 			node.Override(new(ffiwrapper.Verifier), mock.MockVerifier),
 			node.Override(new(ffiwrapper.Prover), mock.MockProver),
@@ -625,17 +444,4 @@ func parseWSMultiAddr(addr net.Addr) (multiaddr.Multiaddr, error) {
 		return nil, err
 	}
 	return ma, nil
-}
-
-func WSMultiAddrToString(addr multiaddr.Multiaddr) (string, error) {
-	parts := strings.Split(addr.String(), "/")
-	if len(parts) != 6 || parts[0] != "" {
-		return "", xerrors.Errorf("Malformed ws multiaddr %s", addr)
-	}
-
-	host := parts[2]
-	port := parts[4]
-	proto := parts[5]
-
-	return proto + "://" + host + ":" + port + "/rpc/v0", nil
 }

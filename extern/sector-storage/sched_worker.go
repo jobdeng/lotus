@@ -2,6 +2,7 @@ package sectorstorage
 
 import (
 	"context"
+	"github.com/filecoin-project/go-state-types/abi"
 	"time"
 
 	"golang.org/x/xerrors"
@@ -19,7 +20,7 @@ type schedWorker struct {
 	scheduledWindows chan *schedWindow
 	taskDone         chan struct{}
 
-	windowsRequested int
+	windowsRequested int	//窗口请求数，目前最大2个
 }
 
 // context only used for startup
@@ -47,6 +48,8 @@ func (sh *scheduler) runWorker(ctx context.Context, w Worker) error {
 
 		closingMgr: make(chan struct{}),
 		closedMgr:  make(chan struct{}),
+
+		sectorProcessStatus: make(map[abi.SectorID]*SealTaskStatus),
 	}
 
 	wid := WorkerID(sessID)
@@ -112,7 +115,7 @@ func (sw *schedWorker) handleWorker() {
 
 			// ask for more windows if we need them (non-blocking)
 			if enabled {
-				if !sw.requestWindows() {
+				if !sw.requestWindows() {		//请求任务窗口
 					return // graceful shutdown
 				}
 			}
@@ -121,7 +124,7 @@ func (sw *schedWorker) handleWorker() {
 		// wait for more windows to come in, or for tasks to get finished (blocking)
 		for {
 			// ping the worker and check session
-			if !sw.checkSession(ctx) {
+			if !sw.checkSession(ctx) {		//检查worker是否可用
 				return // invalid session / exiting
 			}
 
@@ -159,7 +162,7 @@ func (sw *schedWorker) handleWorker() {
 		// process assigned windows (non-blocking)
 		sched.workersLk.RLock()
 		worker.wndLk.Lock()
-
+		// 压缩窗口，尽量把每个窗口填满可执行的任务
 		sw.workerCompactWindows()
 
 		// send tasks to the worker
@@ -207,7 +210,7 @@ func (sw *schedWorker) checkSession(ctx context.Context) bool {
 		sctx, scancel := context.WithTimeout(ctx, stores.HeartbeatInterval/2)
 		curSes, err := sw.worker.workerRpc.Session(sctx)
 		scancel()
-		if err != nil {
+		if err != nil {		//worker不可用，就会继续检测到可用为止
 			// Likely temporary error
 
 			log.Warnw("failed to check worker session", "error", err)
@@ -228,9 +231,9 @@ func (sw *schedWorker) checkSession(ctx context.Context) bool {
 				if err := sw.disable(ctx); err != nil {
 					log.Warnw("failed to disable worker with session error", "worker", sw.wid, "error", err)
 				}
-			case <-sw.sched.closing:
+			case <-sw.sched.closing:	//调度器关闭则推出返回false
 				return false
-			case <-sw.worker.closingMgr:
+			case <-sw.worker.closingMgr:	//work被调用器关闭则退出返回false
 				return false
 			}
 			continue
@@ -250,7 +253,7 @@ func (sw *schedWorker) checkSession(ctx context.Context) bool {
 }
 
 func (sw *schedWorker) requestWindows() bool {
-	for ; sw.windowsRequested < SchedWindows; sw.windowsRequested++ {
+	for ; sw.windowsRequested < SchedWindows; sw.windowsRequested++ {	//不超过SchedWindows，目前最多2个
 		select {
 		case sw.sched.windowRequests <- &schedWindowRequest{
 			worker: sw.wid,
@@ -269,7 +272,7 @@ func (sw *schedWorker) waitForUpdates() (update bool, sched bool, ok bool) {
 	select {
 	case <-sw.heartbeatTimer.C:
 		return false, false, true
-	case w := <-sw.scheduledWindows:
+	case w := <-sw.scheduledWindows:	//等待调度窗口发送任务
 		sw.worker.wndLk.Lock()
 		sw.worker.activeWindows = append(sw.worker.activeWindows, w)
 		sw.worker.wndLk.Unlock()
@@ -352,7 +355,7 @@ assignLoop:
 			worker.lk.Lock()
 			for t, todo := range firstWindow.todo {
 				needRes := ResourceTable[todo.taskType][todo.sector.ProofType]
-				if worker.preparing.canHandleRequest(needRes, sw.wid, "startPreparing", worker.info.Resources) {
+				if worker.preparing.canHandleRequest(needRes, sw.wid, "startPreparing", worker.info.Resources) {	// 检查worker资源是否足够应付任务
 					tidx = t
 					break
 				}
@@ -366,24 +369,24 @@ assignLoop:
 			todo := firstWindow.todo[tidx]
 
 			log.Debugf("assign worker sector %d", todo.sector.ID.Number)
-			err := sw.startProcessingTask(sw.taskDone, todo)
+			err := sw.startProcessingTask(sw.taskDone, todo)	//worker处理任务
 
 			if err != nil {
 				log.Errorf("startProcessingTask error: %+v", err)
 				go todo.respond(xerrors.Errorf("startProcessingTask error: %w", err))
 			}
-
+			// 把已分配的任务剔除todo数组
 			// Note: we're not freeing window.allocated resources here very much on purpose
 			copy(firstWindow.todo[tidx:], firstWindow.todo[tidx+1:])
 			firstWindow.todo[len(firstWindow.todo)-1] = nil
 			firstWindow.todo = firstWindow.todo[:len(firstWindow.todo)-1]
 		}
-
+		// 任务分配完后，把第一个窗口剔除
 		copy(worker.activeWindows, worker.activeWindows[1:])
 		worker.activeWindows[len(worker.activeWindows)-1] = nil
 		worker.activeWindows = worker.activeWindows[:len(worker.activeWindows)-1]
 
-		sw.windowsRequested--
+		sw.windowsRequested--	//未完成任务，就减少当前已请求窗口数，任务还在异步执行中。
 	}
 }
 
@@ -396,7 +399,7 @@ func (sw *schedWorker) startProcessingTask(taskDone chan struct{}, req *workerRe
 	w.preparing.add(w.info.Resources, needRes)
 	w.lk.Unlock()
 
-	go func() {
+	go func() {	//执行异步线程，不阻塞主线程
 		// first run the prepare step (e.g. fetching sector data from other worker)
 		err := req.prepare(req.ctx, sh.workTracker.worker(sw.wid, w.info, w.workerRpc))
 		sh.workersLk.Lock()
@@ -431,13 +434,25 @@ func (sw *schedWorker) startProcessingTask(taskDone chan struct{}, req *workerRe
 			sh.workersLk.Unlock()
 			defer sh.workersLk.Lock() // we MUST return locked from this function
 
-			select {
-			case taskDone <- struct{}{}:
-			case <-sh.closing:
+			//select {
+			//case taskDone <- struct{}{}:
+			//case <-sh.closing:
+			//}
+
+			// 纪录work进行中的任务
+			w.sectorProcessStatus[req.sector.ID] = &SealTaskStatus{
+				Task:      req.taskType,
+				Completed: false,
 			}
 
 			// Do the work!
-			err = req.work(req.ctx, sh.workTracker.worker(sw.wid, w.info, w.workerRpc))
+			err = req.work(req.ctx, sh.workTracker.worker(sw.wid, w.info, w.workerRpc))	//一般会是一个阻塞当前线程的工作
+
+			sts := w.sectorProcessStatus[req.sector.ID]
+			sts.Completed = true
+			w.sectorProcessStatus[req.sector.ID] = sts
+
+			taskDone <- struct{}{}	//注销原来的代码，待任务完成才请求新任务
 
 			select {
 			case req.ret <- workerResponse{err: err}:

@@ -427,7 +427,7 @@ func (m *Sealing) tryCreateDealSector(ctx context.Context, sp abi.RegisteredSeal
 	})
 }
 
-// call with m.inputLk
+// call with m.inputLk	创建新sector
 func (m *Sealing) createSector(ctx context.Context, cfg sealiface.Config, sp abi.RegisteredSealProof) (abi.SectorNumber, error) {
 	// Now actually create a new sector
 

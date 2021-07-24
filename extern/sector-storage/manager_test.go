@@ -453,3 +453,45 @@ func TestReenableWorker(t *testing.T) {
 	i, _ = m.sched.Info(ctx)
 	require.Len(t, i.(SchedDiagInfo).OpenWindows, 2)
 }
+
+
+func TestFull(t *testing.T) {
+	logging.SetAllLoggers(logging.LevelDebug)
+
+	ctx := context.Background()
+	m, lstor, _, _, cleanup := newTestMgr(ctx, t, datastore.NewMapDatastore())
+	defer cleanup()
+
+	localTasks := []sealtasks.TaskType{
+		sealtasks.TTAddPiece, sealtasks.TTPreCommit1, sealtasks.TTPreCommit2, sealtasks.TTCommit1, sealtasks.TTCommit2, sealtasks.TTFinalize, sealtasks.TTFetch,
+	}
+
+	err := m.AddWorker(ctx, newTestWorker(WorkerConfig{
+		TaskTypes: localTasks,
+	}, lstor, m))
+	require.NoError(t, err)
+
+	sid := storage.SectorRef{
+		ID:        abi.SectorID{Miner: 1000, Number: 1},
+		ProofType: abi.RegisteredSealProof_StackedDrg2KiBV1,
+	}
+
+	pi, err := m.AddPiece(ctx, sid, nil, 1016, strings.NewReader(strings.Repeat("testthis", 127)))
+	require.NoError(t, err)
+	require.Equal(t, abi.PaddedPieceSize(1024), pi.Size)
+
+	piz, err := m.AddPiece(ctx, sid, nil, 1016, bytes.NewReader(make([]byte, 1016)[:]))
+	require.NoError(t, err)
+	require.Equal(t, abi.PaddedPieceSize(1024), piz.Size)
+
+	pieces := []abi.PieceInfo{pi, piz}
+
+	ticket := abi.SealRandomness{9, 9, 9, 9, 9, 9, 9, 9}
+
+	phase1Out, err := m.SealPreCommit1(ctx, sid, ticket, pieces)
+	require.NoError(t, err)
+
+	_, err = m.SealPreCommit2(ctx, sid, phase1Out)
+	require.NoError(t, err)
+
+}

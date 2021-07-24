@@ -2,33 +2,35 @@ package sectorstorage
 
 import (
 	"context"
-
-	"golang.org/x/xerrors"
-
 	"github.com/filecoin-project/go-state-types/abi"
-
 	"github.com/filecoin-project/lotus/extern/sector-storage/sealtasks"
 	"github.com/filecoin-project/lotus/extern/sector-storage/stores"
 	"github.com/filecoin-project/lotus/extern/sector-storage/storiface"
+	"golang.org/x/xerrors"
 )
 
-type existingSelector struct {
-	index      stores.SectorIndex
-	sector     abi.SectorID
-	alloc      storiface.SectorFileType
-	allowFetch bool
+type SealTaskStatus struct {
+	Task sealtasks.TaskType
+	Completed bool
 }
 
-func newExistingSelector(index stores.SectorIndex, sector abi.SectorID, alloc storiface.SectorFileType, allowFetch bool) *existingSelector {
-	return &existingSelector{
-		index:      index,
-		sector:     sector,
-		alloc:      alloc,
-		allowFetch: allowFetch,
+type fixSelector struct {
+	index  stores.SectorIndex
+	alloc  storiface.SectorFileType
+	ptype  storiface.PathType
+	sector abi.SectorID
+}
+
+func newFixSelector(index stores.SectorIndex, sector abi.SectorID, alloc storiface.SectorFileType, ptype storiface.PathType) *fixSelector {
+	return &fixSelector{
+		index:  index,
+		sector: sector,
+		alloc:  alloc,
+		ptype:  ptype,
 	}
 }
 
-func (s *existingSelector) Ok(ctx context.Context, task sealtasks.TaskType, spt abi.RegisteredSealProof, whnd *workerHandle) (bool, error) {
+func (s *fixSelector) Ok(ctx context.Context, task sealtasks.TaskType, spt abi.RegisteredSealProof, whnd *workerHandle) (bool, error) {
 
 	//如果worker已对sector执行过ap任务，即只分派给它
 	processTask := whnd.sectorProcessStatus[s.sector]
@@ -63,7 +65,7 @@ func (s *existingSelector) Ok(ctx context.Context, task sealtasks.TaskType, spt 
 		break
 	}
 
-	tasks, err := whnd.workerRpc.TaskTypes(ctx)
+	tasks, err := whnd.workerRpc.TaskTypes(ctx) //worker是否支持任务类型
 	if err != nil {
 		return false, xerrors.Errorf("getting supported worker task types: %w", err)
 	}
@@ -86,9 +88,9 @@ func (s *existingSelector) Ok(ctx context.Context, task sealtasks.TaskType, spt 
 		return false, xerrors.Errorf("getting sector size: %w", err)
 	}
 
-	best, err := s.index.StorageFindSector(ctx, s.sector, s.alloc, ssize, s.allowFetch)
+	best, err := s.index.StorageBestAlloc(ctx, s.alloc, ssize, s.ptype)
 	if err != nil {
-		return false, xerrors.Errorf("finding best storage: %w", err)
+		return false, xerrors.Errorf("finding best alloc storage: %w", err)
 	}
 
 	for _, info := range best {
@@ -100,8 +102,8 @@ func (s *existingSelector) Ok(ctx context.Context, task sealtasks.TaskType, spt 
 	return false, nil
 }
 
-func (s *existingSelector) Cmp(ctx context.Context, task sealtasks.TaskType, a, b *workerHandle) (bool, error) {
+func (s *fixSelector) Cmp(ctx context.Context, task sealtasks.TaskType, a, b *workerHandle) (bool, error) {
 	return a.utilization() < b.utilization(), nil
 }
 
-var _ WorkerSelector = &existingSelector{}
+var _ WorkerSelector = &fixSelector{}
