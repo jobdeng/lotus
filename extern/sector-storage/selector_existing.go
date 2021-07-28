@@ -30,7 +30,14 @@ func newExistingSelector(index stores.SectorIndex, sector abi.SectorID, alloc st
 
 func (s *existingSelector) Ok(ctx context.Context, task sealtasks.TaskType, spt abi.RegisteredSealProof, whnd *workerHandle) (bool, error) {
 
-	//如果worker已对sector执行过ap任务，即只分派给它
+	tasks, err := whnd.workerRpc.TaskTypes(ctx)
+	if err != nil {
+		return false, xerrors.Errorf("getting supported worker task types: %w", err)
+	}
+	if _, supported := tasks[task]; !supported {
+		return false, nil
+	}
+
 	processTask := whnd.sectorProcessStatus[s.sector]
 	wid, _ := whnd.workerRpc.Session(ctx)
 
@@ -40,35 +47,17 @@ func (s *existingSelector) Ok(ctx context.Context, task sealtasks.TaskType, spt 
 	}
 
 	switch task {
-	case sealtasks.TTAddPiece:
-		// worker有在做AP/P1/P2，没有完成就不接新的AP任务
-		for sector, status := range whnd.sectorProcessStatus {
-			if sector != s.sector {
-				if status.Task == sealtasks.TTAddPiece ||
-					status.Task == sealtasks.TTPreCommit1 ||
-					status.Task == sealtasks.TTPreCommit2 {
-					if !status.Completed {
-						return false, nil
-					}
+	case sealtasks.TTPreCommit1:
+		// worker有在做P1，没有完成就不接新的P1任务
+		for _, status := range whnd.sectorProcessStatus {
+			if status.Task == sealtasks.TTPreCommit1 {
+				if !status.Completed {
+					return false, nil
 				}
 			}
 		}
-
-	case sealtasks.TTPreCommit1, sealtasks.TTPreCommit2, sealtasks.TTCommit1, sealtasks.TTCommit2:
-		// 当执行PC1/PC2/C1/C2任务时，检查worker是否有对sector处理过
-		if processTask == nil {
-			return false, nil
-		}
 	default:
 		break
-	}
-
-	tasks, err := whnd.workerRpc.TaskTypes(ctx)
-	if err != nil {
-		return false, xerrors.Errorf("getting supported worker task types: %w", err)
-	}
-	if _, supported := tasks[task]; !supported {
-		return false, nil
 	}
 
 	paths, err := whnd.workerRpc.Paths(ctx)
@@ -85,7 +74,7 @@ func (s *existingSelector) Ok(ctx context.Context, task sealtasks.TaskType, spt 
 	if err != nil {
 		return false, xerrors.Errorf("getting sector size: %w", err)
 	}
-
+	
 	best, err := s.index.StorageFindSector(ctx, s.sector, s.alloc, ssize, s.allowFetch)
 	if err != nil {
 		return false, xerrors.Errorf("finding best storage: %w", err)

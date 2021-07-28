@@ -306,7 +306,7 @@ func mockSSBuilderOpts(t *testing.T, fullOpts []test.FullNodeOpts, storage []tes
 
 		fulls[i].Stb = storageBuilder(fulls[i], mn, node.Options(
 			node.Override(new(sectorstorage.SectorManager), func() (sectorstorage.SectorManager, error) {
-				return NewTestSectorMgr(ctx, t, nil), nil
+				return NewTestSectorMgr(ctx, t, nil, nil), nil
 			}),
 			node.Override(new(ffiwrapper.Verifier), mock.MockVerifier),
 			node.Override(new(ffiwrapper.Prover), mock.MockProver),
@@ -345,7 +345,7 @@ func mockSSBuilderOpts(t *testing.T, fullOpts []test.FullNodeOpts, storage []tes
 		}
 		storers[i] = CreateTestStorageNode(ctx, t, genms[i].Worker, maddrs[i], pidKeys[i], f, mn, node.Options(
 			node.Override(new(sectorstorage.SectorManager), func() (sectorstorage.SectorManager, error) {
-				return NewTestSectorMgr(ctx, t, def.Workers), nil
+				return NewTestSectorMgr(ctx, t, def.Workers, sectors), nil
 			}),
 			node.Override(new(ffiwrapper.Verifier), mock.MockVerifier),
 			node.Override(new(ffiwrapper.Prover), mock.MockProver),

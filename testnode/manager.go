@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/lotus/api/test"
 	sectorstorage "github.com/filecoin-project/lotus/extern/sector-storage"
+	"github.com/filecoin-project/lotus/extern/sector-storage/mock"
 	"github.com/filecoin-project/lotus/extern/sector-storage/sealtasks"
 	"github.com/filecoin-project/lotus/node/modules"
 	"github.com/google/uuid"
@@ -81,7 +83,7 @@ func (t *testStorage) Stat(path string) (fsutil.FsStat, error) {
 }
 
 
-func NewTestSectorMgr(ctx context.Context, t *testing.T, workers []test.WorkerSpec) *sectorstorage.Manager {
+func NewTestSectorMgr(ctx context.Context, t *testing.T, workers []test.WorkerSpec, genesisSectors []abi.SectorID) *sectorstorage.Manager {
 	st := newTestStorage(t)
 	si := stores.NewIndex()
 	ds := datastore.NewMapDatastore()
@@ -89,13 +91,15 @@ func NewTestSectorMgr(ctx context.Context, t *testing.T, workers []test.WorkerSp
 	wsts := statestore.New(namespace.Wrap(ds, modules.WorkerCallsPrefix))
 	smsts := statestore.New(namespace.Wrap(ds, modules.ManagerWorkPrefix))
 
+	sectorMgr := mock.NewMockSectorMgr(genesisSectors)
+
 	m, err := sectorstorage.New(ctx, st, si, sectorstorage.SealerConfig{
 		ParallelFetchLimit: 10,
-		AllowAddPiece:      true,
-		AllowPreCommit1:    true,
-		AllowPreCommit2:    true,
-		AllowCommit:        true,
-		AllowUnseal:        true,
+		AllowAddPiece:      false,
+		AllowPreCommit1:    false,
+		AllowPreCommit2:    false,
+		AllowCommit:        false,
+		AllowUnseal:        false,
 	}, nil, nil, wsts, smsts)
 	require.NoError(t, err)
 
@@ -103,7 +107,7 @@ func NewTestSectorMgr(ctx context.Context, t *testing.T, workers []test.WorkerSp
 		for _, w := range workers {
 			err := m.AddWorker(ctx, newTestWorker(sectorstorage.WorkerConfig{
 				TaskTypes: w.TaskTypes,
-			}, m.GetLocalStore(), m, w.Name))
+			}, m.GetLocalStore(), m, w.Name, sectorMgr))
 			require.NoError(t, err)
 		}
 	}

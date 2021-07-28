@@ -14,7 +14,7 @@ import (
 )
 
 type testWorker struct {
-	name string
+	name        string
 	acceptTasks map[sealtasks.TaskType]struct{}
 	lstor       *stores.Local
 	ret         storiface.WorkerReturn
@@ -26,19 +26,19 @@ type testWorker struct {
 	sectorstorage.Worker
 }
 
-func newTestWorker(wcfg sectorstorage.WorkerConfig, lstor *stores.Local, ret storiface.WorkerReturn, name string) *testWorker {
+func newTestWorker(wcfg sectorstorage.WorkerConfig, lstor *stores.Local, ret storiface.WorkerReturn, name string, sectorMgr *mock.SectorMgr) *testWorker {
 	acceptTasks := map[sealtasks.TaskType]struct{}{}
 	for _, taskType := range wcfg.TaskTypes {
 		acceptTasks[taskType] = struct{}{}
 	}
 
 	return &testWorker{
-		name: name,
+		name:        name,
 		acceptTasks: acceptTasks,
 		lstor:       lstor,
 		ret:         ret,
 
-		mockSeal: mock.NewMockSectorMgr(nil),
+		mockSeal: sectorMgr,
 
 		session: uuid.New(),
 	}
@@ -103,7 +103,6 @@ func (t *testWorker) Fetch(ctx context.Context, sector storage.SectorRef, fileTy
 	})
 }
 
-
 func (t *testWorker) SealCommit1(ctx context.Context, sector storage.SectorRef, ticket abi.SealRandomness, seed abi.InteractiveSealRandomness, pieces []abi.PieceInfo, cids storage.SectorCids) (storiface.CallID, error) {
 	log.Infof("worker name: %s", t.name)
 	return t.asyncCall(sector, func(ci storiface.CallID) {
@@ -133,7 +132,6 @@ func (t *testWorker) FinalizeSector(ctx context.Context, sector storage.SectorRe
 		}
 	})
 }
-
 
 func (t *testWorker) ReleaseUnsealed(ctx context.Context, sector storage.SectorRef, safeToFree []storage.Range) (storiface.CallID, error) {
 	log.Infof("worker name: %s", t.name)

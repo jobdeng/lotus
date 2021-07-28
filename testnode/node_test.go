@@ -3,7 +3,6 @@ package testnode
 import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/lotus/chain/actors/policy"
-	builder "github.com/filecoin-project/lotus/node/test"
 	logging "github.com/ipfs/go-log/v2"
 	"testing"
 	"time"
@@ -31,7 +30,7 @@ func TestPledgeSectors(t *testing.T) {
 	})
 
 	t.Run("100", func(t *testing.T) {
-		TestPledgeSector(t, builder.MockSbBuilder, 50*time.Millisecond, 100)
+		TestPledgeSector(t, MockSSBuilder, 50*time.Millisecond, 100)
 	})
 
 	t.Run("1000", func(t *testing.T) {
@@ -39,6 +38,6 @@ func TestPledgeSectors(t *testing.T) {
 			t.Skip("skipping test in short mode")
 		}
 
-		TestPledgeSector(t, builder.MockSbBuilder, 50*time.Millisecond, 1000)
+		TestPledgeSector(t, MockSSBuilder, 50*time.Millisecond, 1000)
 	})
 }

@@ -395,47 +395,52 @@ var OneMiner = []test.StorageMiner{{
 	Preseal: test.PresealGenesis,
 	Workers: []test.WorkerSpec{
 		test.WorkerSpec{
-			Name: "w1",
+			Name: "ap-worker",
 			TaskTypes: []sealtasks.TaskType{
 				sealtasks.TTAddPiece,
-				sealtasks.TTPreCommit1,
-				sealtasks.TTPreCommit2,
-				sealtasks.TTCommit1,
-				sealtasks.TTCommit2,
-				sealtasks.TTFinalize,
 			},
 		},
 		test.WorkerSpec{
-			Name: "w2",
+			Name: "p1-worker-01",
 			TaskTypes: []sealtasks.TaskType{
-				sealtasks.TTAddPiece,
 				sealtasks.TTPreCommit1,
-				sealtasks.TTPreCommit2,
-				sealtasks.TTCommit1,
-				sealtasks.TTCommit2,
-				sealtasks.TTFinalize,
 			},
 		},
 		test.WorkerSpec{
-			Name: "w3",
+			Name: "p1-worker-02",
 			TaskTypes: []sealtasks.TaskType{
-				sealtasks.TTAddPiece,
 				sealtasks.TTPreCommit1,
-				sealtasks.TTPreCommit2,
-				sealtasks.TTCommit1,
-				sealtasks.TTCommit2,
-				sealtasks.TTFinalize,
 			},
 		},
 		test.WorkerSpec{
-			Name: "w4",
+			Name: "p1-worker-03",
 			TaskTypes: []sealtasks.TaskType{
-				sealtasks.TTAddPiece,
 				sealtasks.TTPreCommit1,
+			},
+		},
+		test.WorkerSpec{
+			Name: "p1-worker-04",
+			TaskTypes: []sealtasks.TaskType{
+				sealtasks.TTPreCommit1,
+			},
+		},
+		test.WorkerSpec{
+			Name: "p1-worker-05",
+			TaskTypes: []sealtasks.TaskType{
+				sealtasks.TTPreCommit1,
+			},
+		},
+		test.WorkerSpec{
+			Name: "p2-worker",
+			TaskTypes: []sealtasks.TaskType{
 				sealtasks.TTPreCommit2,
+			},
+		},
+		test.WorkerSpec{
+			Name: "c2-worker",
+			TaskTypes: []sealtasks.TaskType{
 				sealtasks.TTCommit1,
 				sealtasks.TTCommit2,
-				sealtasks.TTFinalize,
 			},
 		},
 	},
