@@ -434,15 +434,15 @@ func (sw *schedWorker) startProcessingTask(taskDone chan struct{}, req *workerRe
 			sh.workersLk.Unlock()
 			defer sh.workersLk.Lock() // we MUST return locked from this function
 
-			//select {
-			//case taskDone <- struct{}{}:
-			//case <-sh.closing:
-			//}
-
 			// 纪录work进行中的任务
 			w.sectorProcessStatus[req.sector.ID] = &SealTaskStatus{
 				Task:      req.taskType,
 				Completed: false,
+			}
+
+			select {
+			case taskDone <- struct{}{}:
+			case <-sh.closing:
 			}
 
 			// Do the work!
@@ -452,7 +452,7 @@ func (sw *schedWorker) startProcessingTask(taskDone chan struct{}, req *workerRe
 			sts.Completed = true
 			w.sectorProcessStatus[req.sector.ID] = sts
 
-			taskDone <- struct{}{}	//注销原来的代码，待任务完成才请求新任务
+			//taskDone <- struct{}{}	//注销原来的代码，待任务完成才请求新任务
 
 			select {
 			case req.ret <- workerResponse{err: err}:

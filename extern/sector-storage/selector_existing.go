@@ -38,13 +38,13 @@ func (s *existingSelector) Ok(ctx context.Context, task sealtasks.TaskType, spt 
 		return false, nil
 	}
 
-	processTask := whnd.sectorProcessStatus[s.sector]
-	wid, _ := whnd.workerRpc.Session(ctx)
-
-	if processTask != nil {
-		log.Debugf("task: %s selector workerid: %v", task, wid)
-		log.Debugf("worker processTask: %v, completed: %v", processTask.Task, processTask.Completed)
-	}
+	//processTask := whnd.sectorProcessStatus[s.sector]
+	//wid, _ := whnd.workerRpc.Session(ctx)
+	//
+	//if processTask != nil {
+	//	log.Debugf("task: %s selector workerid: %v", task, wid)
+	//	log.Debugf("worker processTask: %v, completed: %v", processTask.Task, processTask.Completed)
+	//}
 
 	switch task {
 	case sealtasks.TTPreCommit1:
@@ -74,7 +74,7 @@ func (s *existingSelector) Ok(ctx context.Context, task sealtasks.TaskType, spt 
 	if err != nil {
 		return false, xerrors.Errorf("getting sector size: %w", err)
 	}
-	
+
 	best, err := s.index.StorageFindSector(ctx, s.sector, s.alloc, ssize, s.allowFetch)
 	if err != nil {
 		return false, xerrors.Errorf("finding best storage: %w", err)

@@ -40,13 +40,13 @@ func (s *fixSelector) Ok(ctx context.Context, task sealtasks.TaskType, spt abi.R
 		return false, nil
 	}
 
-	processTask := whnd.sectorProcessStatus[s.sector]
-	wid, _ := whnd.workerRpc.Session(ctx)
-
-	if processTask != nil {
-		log.Debugf("task: %s selector workerid: %v", task, wid)
-		log.Debugf("worker processTask: %v, completed: %v", processTask.Task, processTask.Completed)
-	}
+	//processTask := whnd.sectorProcessStatus[s.sector]
+	//wid, _ := whnd.workerRpc.Session(ctx)
+	//
+	//if processTask != nil {
+	//	log.Debugf("task: %s selector workerid: %v", task, wid)
+	//	log.Debugf("worker processTask: %v, completed: %v", processTask.Task, processTask.Completed)
+	//}
 
 	switch task {
 	case sealtasks.TTPreCommit1:
