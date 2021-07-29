@@ -156,6 +156,11 @@ var runCmd = &cli.Command{
 			Usage: "used when 'listen' is unspecified. must be a valid duration recognized by golang's time.ParseDuration function",
 			Value: "30m",
 		},
+		&cli.StringFlag{
+			Name:  "name",
+			Usage: "set worker's name",
+			Value: "",
+		},
 	},
 	Before: func(cctx *cli.Context) error {
 		if cctx.IsSet("address") {
@@ -377,12 +382,12 @@ var runCmd = &cli.Command{
 		// Create / expose the worker
 
 		wsts := statestore.New(namespace.Wrap(ds, modules.WorkerCallsPrefix))
-
+		workerName := cctx.String("name")
 		workerApi := &worker{
 			LocalWorker: sectorstorage.NewLocalWorker(sectorstorage.WorkerConfig{
 				TaskTypes: taskTypes,
 				NoSwap:    cctx.Bool("no-swap"),
-			}, remote, localStore, nodeApi, nodeApi, wsts),
+			}, remote, localStore, nodeApi, nodeApi, wsts, workerName),
 			localStore: localStore,
 			ls:         lr,
 		}

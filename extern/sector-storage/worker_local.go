@@ -54,9 +54,10 @@ type LocalWorker struct {
 	session     uuid.UUID
 	testDisable int64
 	closing     chan struct{}
+	name        string
 }
 
-func newLocalWorker(executor ExecutorFunc, wcfg WorkerConfig, store stores.Store, local *stores.Local, sindex stores.SectorIndex, ret storiface.WorkerReturn, cst *statestore.StateStore) *LocalWorker {
+func newLocalWorker(executor ExecutorFunc, wcfg WorkerConfig, store stores.Store, local *stores.Local, sindex stores.SectorIndex, ret storiface.WorkerReturn, cst *statestore.StateStore, name string) *LocalWorker {
 	acceptTasks := map[sealtasks.TaskType]struct{}{}
 	for _, taskType := range wcfg.TaskTypes {
 		acceptTasks[taskType] = struct{}{}
@@ -77,6 +78,7 @@ func newLocalWorker(executor ExecutorFunc, wcfg WorkerConfig, store stores.Store
 
 		session: uuid.New(),
 		closing: make(chan struct{}),
+		name:    name,
 	}
 
 	if w.executor == nil {
@@ -106,8 +108,8 @@ func newLocalWorker(executor ExecutorFunc, wcfg WorkerConfig, store stores.Store
 	return w
 }
 
-func NewLocalWorker(wcfg WorkerConfig, store stores.Store, local *stores.Local, sindex stores.SectorIndex, ret storiface.WorkerReturn, cst *statestore.StateStore) *LocalWorker {
-	return newLocalWorker(nil, wcfg, store, local, sindex, ret, cst)
+func NewLocalWorker(wcfg WorkerConfig, store stores.Store, local *stores.Local, sindex stores.SectorIndex, ret storiface.WorkerReturn, cst *statestore.StateStore, name string) *LocalWorker {
+	return newLocalWorker(nil, wcfg, store, local, sindex, ret, cst, name)
 }
 
 type localWorkerPathProvider struct {
@@ -519,6 +521,7 @@ func (l *LocalWorker) Info(context.Context) (storiface.WorkerInfo, error) {
 			CPUs:        uint64(runtime.NumCPU()),
 			GPUs:        gpus,
 		},
+		WorkerName: l.name,
 	}, nil
 }
 

@@ -81,7 +81,7 @@ var sealingWorkersCmd = &cli.Command{
 				disabled = color.RedString(" (disabled)")
 			}
 
-			fmt.Printf("Worker %s, host %s%s\n", stat.id, color.MagentaString(stat.Info.Hostname), disabled)
+			fmt.Printf("Worker %s, Name %s, host %s%s\n", stat.id, stat.Info.WorkerName, color.MagentaString(stat.Info.Hostname), disabled)
 
 			var barCols = uint64(64)
 			cpuBars := int(stat.CpuUse * barCols / stat.Info.Resources.CPUs)
@@ -177,6 +177,7 @@ var sealingJobsCmd = &cli.Command{
 		})
 
 		workerHostnames := map[uuid.UUID]string{}
+		workerNames := map[uuid.UUID]string{}
 
 		wst, err := nodeApi.WorkerStats(ctx)
 		if err != nil {
@@ -185,10 +186,11 @@ var sealingJobsCmd = &cli.Command{
 
 		for wid, st := range wst {
 			workerHostnames[wid] = st.Info.Hostname
+			workerNames[wid] = st.Info.WorkerName
 		}
 
 		tw := tabwriter.NewWriter(os.Stdout, 2, 4, 2, ' ', 0)
-		_, _ = fmt.Fprintf(tw, "ID\tSector\tWorker\tHostname\tTask\tState\tTime\n")
+		_, _ = fmt.Fprintf(tw, "ID\tSector\tWorker\tName\tHostname\tTask\tState\tTime\n")
 
 		for _, l := range lines {
 			state := "running"
@@ -215,10 +217,13 @@ var sealingJobsCmd = &cli.Command{
 				hostname = l.Hostname
 			}
 
-			_, _ = fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\t%s\t%s\n",
+			workerName := workerNames[l.wid]
+
+			_, _ = fmt.Fprintf(tw, "%s\t%d\t%s\t%s\t%s\t%s\t%s\t%s\n",
 				hex.EncodeToString(l.ID.ID[:4]),
 				l.Sector.Number,
 				hex.EncodeToString(l.wid[:4]),
+				workerName,
 				hostname,
 				l.Task.Short(),
 				state,

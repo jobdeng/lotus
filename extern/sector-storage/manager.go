@@ -161,7 +161,7 @@ func New(ctx context.Context, ls stores.LocalStorage, si stores.SectorIndex, sc 
 
 	err = m.AddWorker(ctx, NewLocalWorker(WorkerConfig{
 		TaskTypes: localTasks,
-	}, stor, lstor, si, m, wss))
+	}, stor, lstor, si, m, wss, ""))
 	if err != nil {
 		return nil, xerrors.Errorf("adding local worker: %w", err)
 	}

@@ -20,6 +20,8 @@ type WorkerInfo struct {
 	Hostname string
 
 	Resources WorkerResources
+
+	WorkerName string
 }
 
 type WorkerResources struct {
