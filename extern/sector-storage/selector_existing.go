@@ -49,9 +49,9 @@ func (s *existingSelector) Ok(ctx context.Context, task sealtasks.TaskType, spt 
 	switch task {
 	case sealtasks.TTPreCommit1:
 		// worker有在做P1，没有完成就不接新的P1任务
-		for _, status := range whnd.sectorProcessStatus {
-			if status.Task == sealtasks.TTPreCommit1 {
-				if !status.Completed {
+		for _, sealTask := range whnd.sectorProcessStatus {
+			if sealTask.Task == sealtasks.TTPreCommit1 {
+				if sealTask.Status == SealTaskStatusAccepted || sealTask.Status == SealTaskStatusWorking {
 					return false, nil
 				}
 			}
@@ -69,24 +69,28 @@ func (s *existingSelector) Ok(ctx context.Context, task sealtasks.TaskType, spt 
 	for _, path := range paths {
 		have[path.ID] = struct{}{}
 	}
-
-	ssize, err := spt.SectorSize()
-	if err != nil {
-		return false, xerrors.Errorf("getting sector size: %w", err)
-	}
-
-	best, err := s.index.StorageFindSector(ctx, s.sector, s.alloc, ssize, s.allowFetch)
-	if err != nil {
-		return false, xerrors.Errorf("finding best storage: %w", err)
-	}
-
-	for _, info := range best {
-		if _, ok := have[info.ID]; ok {
-			return true, nil
-		}
-	}
-
-	return false, nil
+	return true, nil
+	//ssize, err := spt.SectorSize()
+	//if err != nil {
+	//	return false, xerrors.Errorf("getting sector size: %w", err)
+	//}
+	//
+	//best, err := s.index.StorageFindSector(ctx, s.sector, s.alloc, ssize, s.allowFetch)
+	//if err != nil {
+	//	return false, xerrors.Errorf("finding best storage: %w", err)
+	//}
+	//
+	//for _, info := range best {
+	//	if _, ok := have[info.ID]; ok {
+	//		whnd.sectorProcessStatus[s.sector] = &SealTaskStatus{
+	//			Task:      task,
+	//			Status: SealTaskStatusAccepted,
+	//		}
+	//		return true, nil
+	//	}
+	//}
+	//
+	//return false, nil
 }
 
 func (s *existingSelector) Cmp(ctx context.Context, task sealtasks.TaskType, a, b *workerHandle) (bool, error) {

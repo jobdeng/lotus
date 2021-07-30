@@ -695,7 +695,7 @@ func TestSched2(t *testing.T) {
 			go func() {
 				defer rm.wg.Done()
 
-				err := sched.Schedule(ctx, sectorRef, taskType, sel, noopAction, func(ctx context.Context, w Worker) error {
+				err := sched.Schedule(ctx, sectorRef, taskType, sel, func(ctx context.Context, w Worker) error {
 					wi, err := w.Info(ctx)
 					require.NoError(t, err)
 
@@ -716,7 +716,7 @@ func TestSched2(t *testing.T) {
 					log.Info("OUT ", taskName)
 
 					return nil
-				})
+				}, noopAction)
 				require.NoError(t, err, fmt.Sprint(l, l2))
 			}()
 
@@ -784,7 +784,6 @@ func TestSched2(t *testing.T) {
 			for i, task := range tasks {
 				log.Info("TASK", i)
 				task(t, sched, index, &rm)
-				time.Sleep(2 * time.Second)
 			}
 
 			log.Info("wait for async stuff")
@@ -835,31 +834,27 @@ func TestSched2(t *testing.T) {
 
 	t.Run("ap-pc1-2workers", testFunc([]workerSpec{
 		{name: "fred1", taskTypes: map[sealtasks.TaskType]struct{}{
-			sealtasks.TTAddPiece: {},
 			sealtasks.TTPreCommit1: {},
 		}},
-		//{name: "fred2", taskTypes: map[sealtasks.TaskType]struct{}{
-		//	sealtasks.TTAddPiece: {},
-		//	sealtasks.TTPreCommit1: {},
-		//}},
+		{name: "fred2", taskTypes: map[sealtasks.TaskType]struct{}{
+			sealtasks.TTPreCommit1: {},
+		}},
 	}, []task{
-		sched("ap-1", "fred1", 1, sealtasks.TTAddPiece),
-		taskStarted("ap-1"),
-		//sched("pc1-1", "fred1", 1, sealtasks.TTPreCommit1),
-		//taskNotScheduled("pc1-1"),
+		sched("pc-1", "fred1", 1, sealtasks.TTPreCommit1),
+		sched("pc-2", "fred2", 2, sealtasks.TTPreCommit1),
+		taskStarted("pc-1"),
+		taskStarted("pc-2"),
 
-		sched("ap-2", "fred1", 2, sealtasks.TTAddPiece),
-		taskNotScheduled("ap-2"),
-		//taskStarted("ap-2"),
-		//sched("pc1-2", "fred2", 2, sealtasks.TTPreCommit1),
-		//taskNotScheduled("pc1-2"),
+		sched("pc-3", "fred1", 3, sealtasks.TTPreCommit1),
+		taskNotScheduled("pc-3"),
 
 		diag(),
 
-		taskDone("ap-1"),
-		//taskDone("pc1-1"),
-		taskDone("ap-2"),
-		//taskDone("pc1-2"),
+		taskDone("pc-1"),
+		taskDone("pc-2"),
+
+		taskStarted("pc-3"),
+		taskDone("pc-3"),
 
 	}))
 }

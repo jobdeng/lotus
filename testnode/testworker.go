@@ -155,7 +155,7 @@ func (t *testWorker) Info(ctx context.Context) (storiface.WorkerInfo, error) {
 	res := sectorstorage.ResourceTable[sealtasks.TTPreCommit2][abi.RegisteredSealProof_StackedDrg2KiBV1]
 
 	return storiface.WorkerInfo{
-		Hostname: "testworkerer",
+		Hostname: t.name,
 		Resources: storiface.WorkerResources{
 			MemPhysical: res.MinMemory * 3,
 			MemSwap:     0,

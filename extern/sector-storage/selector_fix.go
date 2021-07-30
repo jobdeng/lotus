@@ -9,9 +9,15 @@ import (
 	"golang.org/x/xerrors"
 )
 
+const (
+	SealTaskStatusAccepted = 0
+	SealTaskStatusWorking  = 1
+	SealTaskStatusFinished = 2
+)
+
 type SealTaskStatus struct {
-	Task sealtasks.TaskType
-	Completed bool
+	Task   sealtasks.TaskType
+	Status uint64 //0: accepted, 1: working, 2: finished
 }
 
 type fixSelector struct {
@@ -51,9 +57,9 @@ func (s *fixSelector) Ok(ctx context.Context, task sealtasks.TaskType, spt abi.R
 	switch task {
 	case sealtasks.TTPreCommit1:
 		// worker有在做P1，没有完成就不接新的P1任务
-		for _, status := range whnd.sectorProcessStatus {
-			if status.Task == sealtasks.TTPreCommit1 {
-				if !status.Completed {
+		for _, sealTask := range whnd.sectorProcessStatus {
+			if sealTask.Task == sealtasks.TTPreCommit1 {
+				if sealTask.Status == SealTaskStatusAccepted || sealTask.Status == SealTaskStatusWorking {
 					return false, nil
 				}
 			}
@@ -84,6 +90,10 @@ func (s *fixSelector) Ok(ctx context.Context, task sealtasks.TaskType, spt abi.R
 
 	for _, info := range best {
 		if _, ok := have[info.ID]; ok {
+			whnd.sectorProcessStatus[s.sector] = &SealTaskStatus{
+				Task:      task,
+				Status: SealTaskStatusAccepted,
+			}
 			return true, nil
 		}
 	}

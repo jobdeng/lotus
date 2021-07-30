@@ -364,7 +364,7 @@ func (sh *scheduler) trySched() {
 	acceptableWindows := make([][]int, queuneLen)
 
 	// Step 1
-	throttle := make(chan struct{}, windowsLen)
+	throttle := make(chan struct{}, 1)	//不进行多线程
 
 	var wg sync.WaitGroup
 	wg.Add(queuneLen)
@@ -461,8 +461,20 @@ func (sh *scheduler) trySched() {
 
 		selectedWindow := -1
 		for _, wnd := range acceptableWindows[task.indexHeap] {
+
 			wid := sh.openWindows[wnd].worker
 			wr := sh.workers[wid].info.Resources
+
+			if selectedWindow != -1 {	//任务只接收一个窗口，其他窗口重置该任务执行状态
+				//重置worker的任务状态
+				worker, ok := sh.workers[wid]
+				if !ok {
+					continue
+				}
+				log.Debugf("delete worker: %s sector: %d task: %s", worker.info.Hostname, task.sector.ID.Number, task.taskType)
+				delete(worker.sectorProcessStatus, task.sector.ID)
+				continue
+			}
 
 			log.Debugf("SCHED try assign sqi:%d sector %d to window %d", sqi, task.sector.ID.Number, wnd)
 
@@ -480,7 +492,7 @@ func (sh *scheduler) trySched() {
 			//  without additional network roundtrips (O(n^2) could be avoided by turning acceptableWindows.[] into heaps))
 
 			selectedWindow = wnd
-			break
+			//break
 		}
 
 		if selectedWindow < 0 {
@@ -532,6 +544,7 @@ func (sh *scheduler) trySched() {
 		}
 
 		newOpenWindows = append(newOpenWindows, window)
+
 	}
 
 	sh.openWindows = newOpenWindows

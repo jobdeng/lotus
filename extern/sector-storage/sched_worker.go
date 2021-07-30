@@ -437,7 +437,7 @@ func (sw *schedWorker) startProcessingTask(taskDone chan struct{}, req *workerRe
 			// 纪录work进行中的任务
 			w.sectorProcessStatus[req.sector.ID] = &SealTaskStatus{
 				Task:      req.taskType,
-				Completed: false,
+				Status: SealTaskStatusWorking,
 			}
 
 			select {
@@ -449,10 +449,9 @@ func (sw *schedWorker) startProcessingTask(taskDone chan struct{}, req *workerRe
 			err = req.work(req.ctx, sh.workTracker.worker(sw.wid, w.info, w.workerRpc))	//一般会是一个阻塞当前线程的工作
 
 			sts := w.sectorProcessStatus[req.sector.ID]
-			sts.Completed = true
+			sts.Status = SealTaskStatusFinished
 			w.sectorProcessStatus[req.sector.ID] = sts
-
-			//taskDone <- struct{}{}	//注销原来的代码，待任务完成才请求新任务
+			log.Debugf("worker: %s finish sector: %d, task: %s", w.info.Hostname, req.sector.ID.Number, req.taskType)
 
 			select {
 			case req.ret <- workerResponse{err: err}:
