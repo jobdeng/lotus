@@ -352,8 +352,7 @@ func (m *Manager) AddPiece(ctx context.Context, sector storage.SectorRef, existi
 	var selector WorkerSelector
 	var err error
 	if len(existingPieces) == 0 { // new
-		//selector = newAllocSelector(m.index, storiface.FTUnsealed, storiface.PathSealing)
-		selector = newFixSelector(m.index, sector.ID, storiface.FTUnsealed, storiface.PathSealing)
+		selector = newAllocSelector(m.index, storiface.FTUnsealed, storiface.PathSealing)
 	} else { // use existing
 		selector = newExistingSelector(m.index, sector.ID, storiface.FTUnsealed, false)
 	}
