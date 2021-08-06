@@ -471,7 +471,7 @@ func (sh *scheduler) trySched() {
 				if !ok {
 					continue
 				}
-				log.Debugf("delete worker: %s sector: %d task: %s", worker.info.Hostname, task.sector.ID.Number, task.taskType)
+				log.Debugf("delete worker: %s sector: %d task: %s", worker.info.WorkerName, task.sector.ID.Number, task.taskType)
 				delete(worker.sectorProcessStatus, task.sector.ID)
 				continue
 			}

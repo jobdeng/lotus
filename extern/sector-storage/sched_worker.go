@@ -278,7 +278,7 @@ func (sw *schedWorker) waitForUpdates() (update bool, sched bool, ok bool) {
 		sw.worker.wndLk.Unlock()
 		return true, false, true
 	case <-sw.taskDone:
-		log.Debugw("task done", "workerid", sw.wid)
+		log.Debugw("task done", "workerid", sw.wid, "workername", sw.worker.info.WorkerName)
 		return true, true, true
 	case <-sw.sched.closing:
 	case <-sw.worker.closingMgr:
@@ -451,7 +451,10 @@ func (sw *schedWorker) startProcessingTask(taskDone chan struct{}, req *workerRe
 			sts := w.sectorProcessStatus[req.sector.ID]
 			sts.Status = SealTaskStatusFinished
 			w.sectorProcessStatus[req.sector.ID] = sts
-			log.Debugf("worker: %s finish sector: %d, task: %s", w.info.Hostname, req.sector.ID.Number, req.taskType)
+			log.Debugf("worker: %s finish sector: %d, task: %s", w.info.WorkerName, req.sector.ID.Number, req.taskType)
+			if err != nil {
+				log.Errorf("worker: %s do task: %s failed: %v", w.info.WorkerName, req.taskType, err)
+			}
 
 			select {
 			case req.ret <- workerResponse{err: err}:
