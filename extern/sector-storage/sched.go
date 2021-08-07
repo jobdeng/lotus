@@ -351,24 +351,24 @@ func (sh *scheduler) trySched() {
 	defer sh.workersLk.RUnlock()
 
 	windowsLen := len(sh.openWindows)
-	queuneLen := sh.schedQueue.Len()
+	queueLen := sh.schedQueue.Len()
 
-	log.Debugf("SCHED %d queued; %d open windows", queuneLen, windowsLen)
+	log.Debugf("SCHED %d queued; %d open windows", queueLen, windowsLen)
 
-	if windowsLen == 0 || queuneLen == 0 {
+	if windowsLen == 0 || queueLen == 0 {
 		// nothing to schedule on
 		return
 	}
 
 	windows := make([]schedWindow, windowsLen)
-	acceptableWindows := make([][]int, queuneLen)
+	acceptableWindows := make([][]int, queueLen)
 
 	// Step 1
 	throttle := make(chan struct{}, 1)	//不进行多线程
 
 	var wg sync.WaitGroup
-	wg.Add(queuneLen)
-	for i := 0; i < queuneLen; i++ {
+	wg.Add(queueLen)
+	for i := 0; i < queueLen; i++ {
 		throttle <- struct{}{}
 		// 查找所有满足该任务的资源窗口，把结果纪录在acceptableWindows二元数组中
 		go func(sqi int) {
@@ -395,7 +395,7 @@ func (sh *scheduler) trySched() {
 				}
 
 				// TODO: allow bigger windows
-				if !windows[wnd].allocated.canHandleRequest(needRes, windowRequest.worker, "schedAcceptable", worker.info.Resources) {
+				if !windows[wnd].allocated.canHandleRequest(needRes, windowRequest.worker, "schedAcceptable", worker.info) {
 					continue
 				}
 
@@ -453,9 +453,10 @@ func (sh *scheduler) trySched() {
 
 	// Step 2
 	scheduled := 0
-	rmQueue := make([]int, 0, queuneLen)
-	//把每个任务分配给满足资源需求的首个窗口
-	for sqi := 0; sqi < queuneLen; sqi++ {
+
+	rmQueue := make([]int, 0, queueLen)
+
+	for sqi := 0; sqi < queueLen; sqi++ {
 		task := (*sh.schedQueue)[sqi]
 		needRes := ResourceTable[task.taskType][task.sector.ProofType]
 
@@ -463,7 +464,7 @@ func (sh *scheduler) trySched() {
 		for _, wnd := range acceptableWindows[task.indexHeap] {
 
 			wid := sh.openWindows[wnd].worker
-			wr := sh.workers[wid].info.Resources
+			info := sh.workers[wid].info
 
 			if selectedWindow != -1 {	//任务只接收一个窗口，其他窗口重置该任务执行状态
 				//重置worker的任务状态
@@ -479,13 +480,13 @@ func (sh *scheduler) trySched() {
 			log.Debugf("SCHED try assign sqi:%d sector %d to window %d", sqi, task.sector.ID.Number, wnd)
 
 			// TODO: allow bigger windows
-			if !windows[wnd].allocated.canHandleRequest(needRes, wid, "schedAssign", wr) {
+			if !windows[wnd].allocated.canHandleRequest(needRes, wid, "schedAssign", info) {
 				continue
 			}
 
 			log.Debugf("SCHED ASSIGNED sqi:%d sector %d task %s to window %d", sqi, task.sector.ID.Number, task.taskType, wnd)
 
-			windows[wnd].allocated.add(wr, needRes)		//纪录窗口已消耗资源数
+			windows[wnd].allocated.add(info.Resources, needRes)
 			// TODO: We probably want to re-sort acceptableWindows here based on new
 			//  workerHandle.utilization + windows[wnd].allocated.utilization (workerHandle.utilization is used in all
 			//  task selectors, but not in the same way, so need to figure out how to do that in a non-O(n^2 way), and

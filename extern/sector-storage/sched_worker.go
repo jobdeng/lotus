@@ -299,7 +299,7 @@ func (sw *schedWorker) workerCompactWindows() {
 
 			for ti, todo := range window.todo {
 				needRes := ResourceTable[todo.taskType][todo.sector.ProofType]
-				if !lower.allocated.canHandleRequest(needRes, sw.wid, "compactWindows", worker.info.Resources) {
+				if !lower.allocated.canHandleRequest(needRes, sw.wid, "compactWindows", worker.info) {
 					continue
 				}
 
@@ -355,7 +355,7 @@ assignLoop:
 			worker.lk.Lock()
 			for t, todo := range firstWindow.todo {
 				needRes := ResourceTable[todo.taskType][todo.sector.ProofType]
-				if worker.preparing.canHandleRequest(needRes, sw.wid, "startPreparing", worker.info.Resources) {	// 检查worker资源是否足够应付任务
+				if worker.preparing.canHandleRequest(needRes, sw.wid, "startPreparing", worker.info) {
 					tidx = t
 					break
 				}
@@ -427,7 +427,7 @@ func (sw *schedWorker) startProcessingTask(taskDone chan struct{}, req *workerRe
 		}
 
 		// wait (if needed) for resources in the 'active' window
-		err = w.active.withResources(sw.wid, w.info.Resources, needRes, &sh.workersLk, func() error {
+		err = w.active.withResources(sw.wid, w.info, needRes, &sh.workersLk, func() error {
 			w.lk.Lock()
 			w.preparing.free(w.info.Resources, needRes)
 			w.lk.Unlock()
