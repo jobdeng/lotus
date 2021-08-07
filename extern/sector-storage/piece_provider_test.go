@@ -286,7 +286,7 @@ func (p *pieceProviderTestHarness) addRemoteWorker(t *testing.T, tasks []sealtas
 
 	worker := newLocalWorker(nil, WorkerConfig{
 		TaskTypes: tasks,
-	}, remote, localStore, p.index, p.mgr, csts)
+	}, remote, localStore, p.index, p.mgr, csts, "")
 
 	p.servers = append(p.servers, svc)
 	p.localStores = append(p.localStores, localStore)
