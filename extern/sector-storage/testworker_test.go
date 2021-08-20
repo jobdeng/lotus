@@ -2,16 +2,14 @@ package sectorstorage
 
 import (
 	"context"
-	"sync"
-
 	"github.com/filecoin-project/go-state-types/abi"
-	"github.com/filecoin-project/specs-storage/storage"
-	"github.com/google/uuid"
-
 	"github.com/filecoin-project/lotus/extern/sector-storage/mock"
 	"github.com/filecoin-project/lotus/extern/sector-storage/sealtasks"
 	"github.com/filecoin-project/lotus/extern/sector-storage/stores"
 	"github.com/filecoin-project/lotus/extern/sector-storage/storiface"
+	"github.com/filecoin-project/specs-storage/storage"
+	"github.com/google/uuid"
+	"sync"
 )
 
 type testWorker struct {

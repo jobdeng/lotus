@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/filecoin-project/lotus/auto"
 	_ "net/http/pprof"
 	"os"
 
@@ -47,6 +48,10 @@ var runCmd = &cli.Command{
 			Name:  "manage-fdlimit",
 			Usage: "manage open file limit",
 			Value: true,
+		},
+		&cli.BoolFlag{
+			Name:  "auto-pledge",
+			Usage: "automatically execute sectors pledge",
 		},
 	},
 	Action: func(cctx *cli.Context) error {
@@ -132,6 +137,11 @@ var runCmd = &cli.Command{
 					return multiaddr.NewMultiaddr("/ip4/127.0.0.1/tcp/" + cctx.String("miner-api"))
 				})),
 			node.Override(new(v1api.FullNode), nodeApi),
+
+			node.ApplyIf(func(s *node.Settings) bool { return cctx.Bool("auto-pledge") },
+				// Auto Sectors Pledge
+				node.Override(node.AutoSectorsPledgeKey, auto.NewAutoSectorsPledge),
+			),
 		)
 		if err != nil {
 			return xerrors.Errorf("creating node: %w", err)

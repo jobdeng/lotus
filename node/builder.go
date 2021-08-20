@@ -140,6 +140,7 @@ const (
 	HandleDealsKey
 	HandleRetrievalKey
 	RunSectorServiceKey
+	AutoSectorsPledgeKey
 
 	// daemon
 	ExtractApiKey

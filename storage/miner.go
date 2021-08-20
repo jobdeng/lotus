@@ -248,6 +248,10 @@ func (m *Miner) runPreflightChecks(ctx context.Context) error {
 	return nil
 }
 
+func (m *Miner) GetSealing() *sealing.Sealing {
+	return m.sealing
+}
+
 type StorageWpp struct {
 	prover   storage.Prover
 	verifier ffiwrapper.Verifier

@@ -26,6 +26,7 @@ type WorkerInfo struct {
 	Resources WorkerResources
 
 	WorkerName string
+	AcceptTasks map[sealtasks.TaskType]struct{}
 }
 
 type WorkerResources struct {

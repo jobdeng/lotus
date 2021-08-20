@@ -521,6 +521,7 @@ func (l *LocalWorker) Info(context.Context) (storiface.WorkerInfo, error) {
 			GPUs:        gpus,
 		},
 		WorkerName: l.name,
+		AcceptTasks: l.acceptTasks,
 	}, nil
 }
 

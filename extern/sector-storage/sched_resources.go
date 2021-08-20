@@ -114,3 +114,13 @@ func (wh *workerHandle) utilization() float64 {
 
 	return u
 }
+
+func WorkerCanHandleRequest(needRes Resources, wid WorkerID, caller string, st storiface.WorkerStats) bool {
+	active := &activeResources{
+		memUsedMin: st.MemUsedMin,
+		memUsedMax: st.MemUsedMax,
+		gpuUsed:    st.GpuUsed,
+		cpuUse:     st.CpuUse,
+	}
+	return active.canHandleRequest(needRes, wid, caller, st.Info)
+}

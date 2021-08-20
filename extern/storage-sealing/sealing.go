@@ -270,3 +270,7 @@ func getDealPerSectorLimit(size abi.SectorSize) (int, error) {
 	}
 	return 512, nil
 }
+
+func (m *Sealing) CurrentSealProof(ctx context.Context) (abi.RegisteredSealProof, error) {
+	return m.currentSealProof(ctx)
+}
