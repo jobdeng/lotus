@@ -10,6 +10,8 @@ import (
 	"github.com/google/uuid"
 	logging "github.com/ipfs/go-log/v2"
 	"go.uber.org/fx"
+	"os"
+	"strconv"
 	"time"
 )
 
@@ -68,6 +70,27 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 		return fmt.Errorf("miner sealing is nil")
 	}
 
+	strToUInt64 := func(s string, def ...int) uint64 {
+		var (
+			value uint64
+			err   error
+		)
+		if value, err = strconv.ParseUint(s, 10, 64); err != nil {
+			if len(def) > 0 {
+				value = uint64(def[0])
+			}
+		}
+		return value
+	}
+
+	envVar := make(map[string]string)
+	for _, envKey := range []string{"FIL_PROOFS_USE_MULTICORE_SDR", "FIL_PROOFS_MULTICORE_SDR_PRODUCERS"} {
+		envValue, found := os.LookupEnv(envKey)
+		if found {
+			envVar[envKey] = envValue
+		}
+	}
+
 	ctx := context.Background()
 	jobs := asp.storageMgr.WorkerJobs()
 
@@ -113,8 +136,21 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 	}
 
 	// 3. 检查P1-worker是否有空闲资源可以压盘。
+	taskPerCores := uint64(1)
+	//1个任务在 FIL_PROOFS_USE_MULTICORE_SDR=1, FIL_PROOFS_MULTICORE_SDR_PRODUCERS=7 下用8个核
+	if envVar["FIL_PROOFS_USE_MULTICORE_SDR"] == "1" {
+		producers := strToUInt64(envVar["FIL_PROOFS_MULTICORE_SDR_PRODUCERS"], 3)
+		taskPerCores = producers + 1
+	}
+
 	needRes := sectorstorage.ResourceTable[sealtasks.TTPreCommit1][proofType]
 	for wid, st := range p1_workers {
+		tasks := len(jobs[wid])
+		cores := st.Info.Resources.CPUs
+		if uint64(tasks) * taskPerCores > cores {
+			continue
+		}
+
 		doPledge = sectorstorage.WorkerCanHandleRequest(needRes, sectorstorage.WorkerID(wid), "executeSectorsPledge", st)
 		if doPledge {
 			_, err := sealing.PledgeSector(ctx)

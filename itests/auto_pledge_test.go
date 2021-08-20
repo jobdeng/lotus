@@ -39,6 +39,9 @@ func TestAutoSectorsPledge(t *testing.T) {
 
 	kit.QuietMiningLogs()
 
+	_ = os.Setenv("FIL_PROOFS_USE_MULTICORE_SDR", "1")
+	_ = os.Setenv("FIL_PROOFS_MULTICORE_SDR_PRODUCERS", "7")
+
 	blockTime := 50 * time.Millisecond
 
 	extOpts := kit.ConstructorOpts(
@@ -191,7 +194,7 @@ func (t *testWorker) SealPreCommit1(ctx context.Context, sector storage.SectorRe
 
 		t.pc1lk.Lock()
 		defer t.pc1lk.Unlock()
-		//time.Sleep(1 * time.Minute)
+		time.Sleep(1 * time.Minute)
 		p1o, err := t.mockSeal.SealPreCommit1(ctx, sector, ticket, pieces)
 		if err := t.ret.ReturnSealPreCommit1(ctx, ci, p1o, toCallError(err)); err != nil {
 			//log.Error(err)
@@ -230,7 +233,7 @@ func (t *testWorker) Info(ctx context.Context) (storiface.WorkerInfo, error) {
 	return storiface.WorkerInfo{
 		Hostname: "testworkerer",
 		Resources: storiface.WorkerResources{
-			MemPhysical: res.MinMemory * 3,
+			MemPhysical: res.MinMemory * 100,
 			MemSwap:     0,
 			MemReserved: res.MinMemory,
 			CPUs:        32,
