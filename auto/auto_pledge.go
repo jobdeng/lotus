@@ -17,7 +17,7 @@ import (
 
 var log = logging.Logger("auto")
 
-var AutoSectorsPledgeInterval = 10 * time.Second
+var AutoSectorsPledgeInterval = 10 * time.Minute
 
 type AutoSectorsPledge struct {
 	storageMgr     *sectorstorage.Manager
@@ -111,15 +111,15 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 	totalC2Tasks := 0
 
 	for wid, st := range wst {
-		if _, ok := st.Info.AcceptTasks[sealtasks.TTAddPiece]; ok {
+		if _, ok := st.Info.AcceptTasks[sealtasks.TTAddPiece]; ok && st.Enabled {
 			totalAPTasks += len(jobs[wid])
 			ap_workers[wid] = st
 		}
-		if _, ok := st.Info.AcceptTasks[sealtasks.TTCommit2]; ok {
+		if _, ok := st.Info.AcceptTasks[sealtasks.TTCommit2]; ok && st.Enabled {
 			totalC2Tasks += len(jobs[wid])
 			c2_workers[wid] = st
 		}
-		if _, ok := st.Info.AcceptTasks[sealtasks.TTPreCommit1]; ok {
+		if _, ok := st.Info.AcceptTasks[sealtasks.TTPreCommit1]; ok && st.Enabled {
 			p1_workers[wid] = st
 		}
 
@@ -130,8 +130,8 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 		return fmt.Errorf("ap workers are busy")
 	}
 
-	// 2. 检查C2-worker是否有空闲。少于4 * C2 worker的待处理任务数量，则可以做pledge。
-	if totalC2Tasks >= len(c2_workers)*4 {
+	// 2. 检查C2-worker是否有空闲。少于3 * C2 worker的待处理任务数量，则可以做pledge。
+	if totalC2Tasks >= len(c2_workers)*3 {
 		return fmt.Errorf("c2 workers are busy")
 	}
 
