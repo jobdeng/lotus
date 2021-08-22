@@ -2,6 +2,8 @@ package sectorstorage
 
 import (
 	"github.com/filecoin-project/go-state-types/abi"
+	"os"
+	"strconv"
 
 	"github.com/filecoin-project/lotus/extern/sector-storage/sealtasks"
 )
@@ -312,6 +314,10 @@ var ResourceTable = map[sealtasks.TaskType]map[abi.RegisteredSealProof]Resources
 }
 
 func init() {
+
+	//when PreCommit1 use FIL_PROOFS_USE_MULTICORE_SDR and FIL_PROOFS_MULTICORE_SDR_PRODUCERS
+	usedMultiCoreSDR()
+
 	ResourceTable[sealtasks.TTUnseal] = ResourceTable[sealtasks.TTPreCommit1] // TODO: measure accurately
 
 	// V1_1 is the same as V1
@@ -322,4 +328,42 @@ func init() {
 		m[abi.RegisteredSealProof_StackedDrg32GiBV1_1] = m[abi.RegisteredSealProof_StackedDrg32GiBV1]
 		m[abi.RegisteredSealProof_StackedDrg64GiBV1_1] = m[abi.RegisteredSealProof_StackedDrg64GiBV1]
 	}
+}
+
+func usedMultiCoreSDR() {
+
+	//when PreCommit1 use FIL_PROOFS_USE_MULTICORE_SDR and FIL_PROOFS_MULTICORE_SDR_PRODUCERS
+	envVar := make(map[string]string)
+	for _, envKey := range []string{"FIL_PROOFS_USE_MULTICORE_SDR", "FIL_PROOFS_MULTICORE_SDR_PRODUCERS"} {
+		envValue, found := os.LookupEnv(envKey)
+		if found {
+			envVar[envKey] = envValue
+		}
+	}
+	if envVar["FIL_PROOFS_USE_MULTICORE_SDR"] == "1" {
+		producers := strToUInt64(envVar["FIL_PROOFS_MULTICORE_SDR_PRODUCERS"], 3)
+		taskPerCores := producers + 1
+
+		res := ResourceTable[sealtasks.TTPreCommit1]
+
+		for k, v := range res {
+			v.MaxParallelism = int(taskPerCores)
+			res[k] = v
+		}
+		ResourceTable[sealtasks.TTPreCommit1] = res
+	}
+
+}
+
+func strToUInt64(s string, def ...int) uint64 {
+	var (
+		value uint64
+		err   error
+	)
+	if value, err = strconv.ParseUint(s, 10, 64); err != nil {
+		if len(def) > 0 {
+			value = uint64(def[0])
+		}
+	}
+	return value
 }

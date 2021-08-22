@@ -31,6 +31,11 @@ import (
 	"time"
 )
 
+func init() {
+	_ = os.Setenv("FIL_PROOFS_USE_MULTICORE_SDR", "1")
+	_ = os.Setenv("FIL_PROOFS_MULTICORE_SDR_PRODUCERS", "7")
+}
+
 func TestAutoSectorsPledge(t *testing.T) {
 	var (
 		endRunning = make(chan bool, 1)
@@ -38,9 +43,6 @@ func TestAutoSectorsPledge(t *testing.T) {
 	)
 
 	kit.QuietMiningLogs()
-
-	_ = os.Setenv("FIL_PROOFS_USE_MULTICORE_SDR", "1")
-	_ = os.Setenv("FIL_PROOFS_MULTICORE_SDR_PRODUCERS", "7")
 
 	blockTime := 50 * time.Millisecond
 

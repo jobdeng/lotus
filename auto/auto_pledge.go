@@ -11,13 +11,12 @@ import (
 	logging "github.com/ipfs/go-log/v2"
 	"go.uber.org/fx"
 	"os"
-	"strconv"
 	"time"
 )
 
 var log = logging.Logger("auto")
 
-var AutoSectorsPledgeInterval = 10 * time.Minute
+var AutoSectorsPledgeInterval = 5 * time.Minute
 
 type AutoSectorsPledge struct {
 	storageMgr     *sectorstorage.Manager
@@ -70,18 +69,18 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 		return fmt.Errorf("miner sealing is nil")
 	}
 
-	strToUInt64 := func(s string, def ...int) uint64 {
-		var (
-			value uint64
-			err   error
-		)
-		if value, err = strconv.ParseUint(s, 10, 64); err != nil {
-			if len(def) > 0 {
-				value = uint64(def[0])
-			}
-		}
-		return value
-	}
+	//strToUInt64 := func(s string, def ...int) uint64 {
+	//	var (
+	//		value uint64
+	//		err   error
+	//	)
+	//	if value, err = strconv.ParseUint(s, 10, 64); err != nil {
+	//		if len(def) > 0 {
+	//			value = uint64(def[0])
+	//		}
+	//	}
+	//	return value
+	//}
 
 	envVar := make(map[string]string)
 	for _, envKey := range []string{"FIL_PROOFS_USE_MULTICORE_SDR", "FIL_PROOFS_MULTICORE_SDR_PRODUCERS"} {
@@ -109,6 +108,7 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 
 	totalAPTasks := 0
 	totalC2Tasks := 0
+	totalC2Reqs := 0
 
 	for wid, st := range wst {
 		if _, ok := st.Info.AcceptTasks[sealtasks.TTAddPiece]; ok && st.Enabled {
@@ -125,31 +125,53 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 
 	}
 
+	// 查看调度器有多少个C2排队
+	type SchedDiag = struct {
+		SchedInfo    sectorstorage.SchedDiagInfo
+		ReturnedWork []string
+		Waiting      []string
+		CallToWork   map[string]string
+		EarlyRet     []string
+	}
+	schedInfo := asp.storageMgr.GetSchedDiagInfo()
+	for _, req := range schedInfo.Requests {
+		//log.Infof("req: %+v", req)
+		if req.TaskType == sealtasks.TTCommit2 {
+			totalC2Reqs = totalC2Reqs + 1
+		}
+	}
+
+
 	// 1. 检查是否有空闲的AP-worker。
 	if totalAPTasks >= len(ap_workers) {
 		return fmt.Errorf("ap workers are busy")
 	}
 
 	// 2. 检查C2-worker是否有空闲。少于3 * C2 worker的待处理任务数量，则可以做pledge。
-	if totalC2Tasks >= len(c2_workers)*3 {
+	if len(c2_workers) == 0 {
+		return fmt.Errorf("c2 workers are not running")
+	}
+	if totalC2Tasks >= len(c2_workers) * 3 && totalC2Reqs >= len(c2_workers) * 2 {
+		log.Infof("totalC2Tasks: %d, totalC2Reqs: %d", totalC2Tasks, totalC2Reqs)
 		return fmt.Errorf("c2 workers are busy")
 	}
 
+
 	// 3. 检查P1-worker是否有空闲资源可以压盘。
-	taskPerCores := uint64(1)
-	//1个任务在 FIL_PROOFS_USE_MULTICORE_SDR=1, FIL_PROOFS_MULTICORE_SDR_PRODUCERS=7 下用8个核
-	if envVar["FIL_PROOFS_USE_MULTICORE_SDR"] == "1" {
-		producers := strToUInt64(envVar["FIL_PROOFS_MULTICORE_SDR_PRODUCERS"], 3)
-		taskPerCores = producers + 1
-	}
+	//taskPerCores := uint64(1)
+	////1个任务在 FIL_PROOFS_USE_MULTICORE_SDR=1, FIL_PROOFS_MULTICORE_SDR_PRODUCERS=7 下用8个核
+	//if envVar["FIL_PROOFS_USE_MULTICORE_SDR"] == "1" {
+	//	producers := strToUInt64(envVar["FIL_PROOFS_MULTICORE_SDR_PRODUCERS"], 3)
+	//	taskPerCores = producers + 1
+	//}
 
 	needRes := sectorstorage.ResourceTable[sealtasks.TTPreCommit1][proofType]
 	for wid, st := range p1_workers {
-		tasks := len(jobs[wid])
-		cores := st.Info.Resources.CPUs
-		if uint64(tasks) * taskPerCores > cores {
-			continue
-		}
+		//tasks := len(jobs[wid])
+		//cores := st.Info.Resources.CPUs
+		//if uint64(tasks) * taskPerCores > cores {
+		//	continue
+		//}
 
 		doPledge = sectorstorage.WorkerCanHandleRequest(needRes, sectorstorage.WorkerID(wid), "executeSectorsPledge", st)
 		if doPledge {

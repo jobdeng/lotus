@@ -585,3 +585,7 @@ func (sh *scheduler) Close(ctx context.Context) error {
 	}
 	return nil
 }
+
+func (sh *scheduler) GetSchedDiagInfo() SchedDiagInfo {
+	return sh.diag()
+}

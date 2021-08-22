@@ -730,3 +730,7 @@ var _ SectorManager = &Manager{}
 func (m *Manager) GetLocalStore() *stores.Local {
 	return m.localStore
 }
+
+func (m *Manager) GetSchedDiagInfo() SchedDiagInfo {
+	return m.sched.GetSchedDiagInfo()
+}
