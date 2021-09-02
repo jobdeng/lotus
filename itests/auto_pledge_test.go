@@ -196,7 +196,7 @@ func (t *testWorker) SealPreCommit1(ctx context.Context, sector storage.SectorRe
 
 		t.pc1lk.Lock()
 		defer t.pc1lk.Unlock()
-		time.Sleep(1 * time.Minute)
+		time.Sleep(10 * time.Second)
 		p1o, err := t.mockSeal.SealPreCommit1(ctx, sector, ticket, pieces)
 		if err := t.ret.ReturnSealPreCommit1(ctx, ci, p1o, toCallError(err)); err != nil {
 			//log.Error(err)
