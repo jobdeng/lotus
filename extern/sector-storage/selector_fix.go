@@ -55,10 +55,19 @@ func (s *fixSelector) Ok(ctx context.Context, task sealtasks.TaskType, spt abi.R
 	//}
 
 	switch task {
-	case sealtasks.TTPreCommit1:
-		// worker有在做P1，没有完成就不接新的P1任务
+	//case sealtasks.TTPreCommit1:
+	//	// worker有在做P1，没有完成就不接新的P1任务
+	//	for _, sealTask := range whnd.sectorProcessStatus {
+	//		if sealTask.Task == sealtasks.TTPreCommit1 {
+	//			if sealTask.Status == SealTaskStatusAccepted || sealTask.Status == SealTaskStatusWorking {
+	//				return false, nil
+	//			}
+	//		}
+	//	}
+	case sealtasks.TTPreCommit2:
+		// worker有在做P2，没有完成就不接新的P2任务
 		for _, sealTask := range whnd.sectorProcessStatus {
-			if sealTask.Task == sealtasks.TTPreCommit1 {
+			if sealTask.Task == sealtasks.TTPreCommit2 {
 				if sealTask.Status == SealTaskStatusAccepted || sealTask.Status == SealTaskStatusWorking {
 					return false, nil
 				}
@@ -83,15 +92,15 @@ func (s *fixSelector) Ok(ctx context.Context, task sealtasks.TaskType, spt abi.R
 		return false, xerrors.Errorf("getting sector size: %w", err)
 	}
 
-	best, err := s.index.StorageBestAlloc(ctx, s.alloc, ssize, s.ptype)
+	best, err := s.index.StorageFindSector(ctx, s.sector, s.alloc, ssize, false)
 	if err != nil {
-		return false, xerrors.Errorf("finding best alloc storage: %w", err)
+		return false, xerrors.Errorf("finding best storage: %w", err)
 	}
 
 	for _, info := range best {
 		if _, ok := have[info.ID]; ok {
 			whnd.sectorProcessStatus[s.sector] = &SealTaskStatus{
-				Task:      task,
+				Task:   task,
 				Status: SealTaskStatusAccepted,
 			}
 			return true, nil

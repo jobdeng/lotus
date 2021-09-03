@@ -16,7 +16,7 @@ import (
 
 var log = logging.Logger("auto")
 
-var AutoSectorsPledgeInterval = 5 * time.Minute
+var AutoSectorsPledgeInterval = 5 * time.Second
 
 type AutoSectorsPledge struct {
 	storageMgr     *sectorstorage.Manager
@@ -69,19 +69,6 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 		return fmt.Errorf("miner sealing is nil")
 	}
 
-	//strToUInt64 := func(s string, def ...int) uint64 {
-	//	var (
-	//		value uint64
-	//		err   error
-	//	)
-	//	if value, err = strconv.ParseUint(s, 10, 64); err != nil {
-	//		if len(def) > 0 {
-	//			value = uint64(def[0])
-	//		}
-	//	}
-	//	return value
-	//}
-
 	envVar := make(map[string]string)
 	for _, envKey := range []string{"FIL_PROOFS_USE_MULTICORE_SDR", "FIL_PROOFS_MULTICORE_SDR_PRODUCERS"} {
 		envValue, found := os.LookupEnv(envKey)
@@ -98,6 +85,15 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 		return err
 	}
 
+	// 查看调度器有多少个C2排队
+	type WorkerCountOfHost = struct {
+		APWorkers uint64
+		P1Workers uint64
+		P2Workers uint64
+		C2Workers uint64
+	}
+
+	workerOfHost := make(map[string]*WorkerCountOfHost)
 	ap_workers := make(map[uuid.UUID]storiface.WorkerStats)
 	p1_workers := make(map[uuid.UUID]storiface.WorkerStats)
 	c2_workers := make(map[uuid.UUID]storiface.WorkerStats)
@@ -111,28 +107,27 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 	totalC2Reqs := 0
 
 	for wid, st := range wst {
+		workerCount := workerOfHost[st.Info.Hostname]
+		if workerCount == nil {
+			workerCount = &WorkerCountOfHost{}
+		}
 		if _, ok := st.Info.AcceptTasks[sealtasks.TTAddPiece]; ok && st.Enabled {
 			totalAPTasks += len(jobs[wid])
 			ap_workers[wid] = st
+			workerCount.APWorkers = workerCount.APWorkers + 1
 		}
 		if _, ok := st.Info.AcceptTasks[sealtasks.TTCommit2]; ok && st.Enabled {
 			totalC2Tasks += len(jobs[wid])
 			c2_workers[wid] = st
+			workerCount.C2Workers = workerCount.C2Workers + 1
 		}
 		if _, ok := st.Info.AcceptTasks[sealtasks.TTPreCommit1]; ok && st.Enabled {
 			p1_workers[wid] = st
+			workerCount.P1Workers = workerCount.P1Workers + 1
 		}
-
+		workerOfHost[st.Info.Hostname] = workerCount
 	}
 
-	// 查看调度器有多少个C2排队
-	type SchedDiag = struct {
-		SchedInfo    sectorstorage.SchedDiagInfo
-		ReturnedWork []string
-		Waiting      []string
-		CallToWork   map[string]string
-		EarlyRet     []string
-	}
 	schedInfo := asp.storageMgr.GetSchedDiagInfo()
 	for _, req := range schedInfo.Requests {
 		//log.Infof("req: %+v", req)
@@ -172,7 +167,12 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 		//if uint64(tasks) * taskPerCores > cores {
 		//	continue
 		//}
-
+		workerCount := workerOfHost[st.Info.Hostname]
+		if workerCount.APWorkers == 0 {
+			//AP worker is not exist, can not pledge sector
+			log.Infof("Host: %s, AP worker is not exist, can not pledge sector", st.Info.Hostname)
+			continue
+		}
 		doPledge = sectorstorage.WorkerCanHandleRequest(needRes, sectorstorage.WorkerID(wid), "executeSectorsPledge", st)
 		if doPledge {
 			_, err := sealing.PledgeSector(ctx)
