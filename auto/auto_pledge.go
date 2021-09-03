@@ -16,7 +16,7 @@ import (
 
 var log = logging.Logger("auto")
 
-var AutoSectorsPledgeInterval = 5 * time.Second
+var AutoSectorsPledgeInterval = 10 * time.Minute
 
 type AutoSectorsPledge struct {
 	storageMgr     *sectorstorage.Manager
