@@ -54,8 +54,9 @@ func (m *Sealing) handleSealPrecommit1Failed(ctx statemachine.Context, sector Se
 	if err := failedCooldown(ctx, sector); err != nil {
 		return err
 	}
-
-	return ctx.Send(SectorRetrySealPreCommit1{})
+	// P1无法完成，一般是ticket expired，直接删除这个sectors吧
+	return m.Remove(ctx.Context(), sector.SectorNumber)
+	//return ctx.Send(SectorRetrySealPreCommit1{})
 }
 
 func (m *Sealing) handleSealPrecommit2Failed(ctx statemachine.Context, sector SectorInfo) error {
