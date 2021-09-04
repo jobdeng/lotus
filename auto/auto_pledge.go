@@ -104,9 +104,22 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 
 	totalAPTasks := 0
 	totalC2Tasks := 0
+	totalP1Reqs := 0
 	totalC2Reqs := 0
 
 	for wid, st := range wst {
+
+		// 先清理丢worker不在线的任务
+		if !st.Enabled {
+			for _, job := range jobs[wid] {
+				log.Infof("aborting job %s, task %s, sector %d, running on host %s", job.ID.String(), job.Task.Short(), job.Sector.Number, job.Hostname)
+				abortErr := asp.storageMgr.Abort(ctx, job.ID)
+				if abortErr != nil {
+					log.Errorf("abort disabled worker's jobs failed, error: %v", abortErr)
+				}
+			}
+		}
+
 		workerCount := workerOfHost[st.Info.Hostname]
 		if workerCount == nil {
 			workerCount = &WorkerCountOfHost{}
@@ -131,11 +144,17 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 	schedInfo := asp.storageMgr.GetSchedDiagInfo()
 	for _, req := range schedInfo.Requests {
 		//log.Infof("req: %+v", req)
-		if req.TaskType == sealtasks.TTCommit2 {
+		//if req.TaskType == sealtasks.TTCommit2 {
+		//	totalC2Reqs = totalC2Reqs + 1
+		//}
+
+		switch req.TaskType {
+		case sealtasks.TTPreCommit1:
+			totalP1Reqs = totalP1Reqs + 1
+		case sealtasks.TTCommit2:
 			totalC2Reqs = totalC2Reqs + 1
 		}
 	}
-
 
 	// 1. 检查是否有空闲的AP-worker。
 	if totalAPTasks >= len(ap_workers) {
@@ -146,27 +165,17 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 	if len(c2_workers) == 0 {
 		return fmt.Errorf("c2 workers are not running")
 	}
-	if totalC2Tasks >= len(c2_workers) * 3 && totalC2Reqs >= len(c2_workers) * 2 {
+	if totalC2Tasks >= len(c2_workers)*3 && totalC2Reqs >= len(c2_workers)*2 {
 		log.Infof("totalC2Tasks: %d, totalC2Reqs: %d", totalC2Tasks, totalC2Reqs)
 		return fmt.Errorf("c2 workers are busy")
 	}
 
-
-	// 3. 检查P1-worker是否有空闲资源可以压盘。
-	//taskPerCores := uint64(1)
-	////1个任务在 FIL_PROOFS_USE_MULTICORE_SDR=1, FIL_PROOFS_MULTICORE_SDR_PRODUCERS=7 下用8个核
-	//if envVar["FIL_PROOFS_USE_MULTICORE_SDR"] == "1" {
-	//	producers := strToUInt64(envVar["FIL_PROOFS_MULTICORE_SDR_PRODUCERS"], 3)
-	//	taskPerCores = producers + 1
-	//}
+	if totalP1Reqs >= len(p1_workers) {
+		return fmt.Errorf("p1 workers are busy")
+	}
 
 	needRes := sectorstorage.ResourceTable[sealtasks.TTPreCommit1][proofType]
 	for wid, st := range p1_workers {
-		//tasks := len(jobs[wid])
-		//cores := st.Info.Resources.CPUs
-		//if uint64(tasks) * taskPerCores > cores {
-		//	continue
-		//}
 		workerCount := workerOfHost[st.Info.Hostname]
 		if workerCount.APWorkers == 0 {
 			//AP worker is not exist, can not pledge sector
