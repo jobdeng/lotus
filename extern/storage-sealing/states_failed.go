@@ -55,6 +55,7 @@ func (m *Sealing) handleSealPrecommit1Failed(ctx statemachine.Context, sector Se
 		return err
 	}
 	// P1无法完成，一般是ticket expired，直接删除这个sectors吧
+	log.Infof("handleSealPrecommit1Failed: remove sector(%d)", sector.SectorNumber)
 	return m.Remove(ctx.Context(), sector.SectorNumber)
 	//return ctx.Send(SectorRetrySealPreCommit1{})
 }
