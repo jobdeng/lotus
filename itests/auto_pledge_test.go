@@ -231,9 +231,9 @@ func (t *testWorker) Paths(ctx context.Context) ([]stores.StoragePath, error) {
 
 func (t *testWorker) Info(ctx context.Context) (storiface.WorkerInfo, error) {
 	res := sectorstorage.ResourceTable[sealtasks.TTPreCommit2][abi.RegisteredSealProof_StackedDrg2KiBV1]
-
+	hostname, _ := os.Hostname()
 	return storiface.WorkerInfo{
-		Hostname: "testworkerer",
+		Hostname: hostname,
 		Resources: storiface.WorkerResources{
 			MemPhysical: res.MinMemory * 100,
 			MemSwap:     0,

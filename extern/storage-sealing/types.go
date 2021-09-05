@@ -113,7 +113,9 @@ type SectorInfo struct {
 	// Debug
 	LastErr string
 
-	Log []Log
+	Log        []Log
+
+	PledgeHostname string
 }
 
 func (t *SectorInfo) pieceInfos() []abi.PieceInfo {

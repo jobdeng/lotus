@@ -37,7 +37,7 @@ func (m *Miner) GetSectorInfo(sid abi.SectorNumber) (sealing.SectorInfo, error) 
 }
 
 func (m *Miner) PledgeSector(ctx context.Context) (storage.SectorRef, error) {
-	return m.sealing.PledgeSector(ctx)
+	return m.sealing.PledgeSector(ctx, "")
 }
 
 func (m *Miner) ForceSectorState(ctx context.Context, id abi.SectorNumber, state sealing.SectorState) error {

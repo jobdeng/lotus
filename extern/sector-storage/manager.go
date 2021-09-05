@@ -289,15 +289,15 @@ func (m *Manager) AddPiece(ctx context.Context, sector storage.SectorRef, existi
 	if err := m.index.StorageLock(ctx, sector.ID, storiface.FTNone, storiface.FTUnsealed); err != nil {
 		return abi.PieceInfo{}, xerrors.Errorf("acquiring sector lock: %w", err)
 	}
-	//TODO: 选择有P1 worker空闲的worker
-	var selector WorkerSelector
-	var err error
-	if len(existingPieces) == 0 { // new
-		selector = newAllocSelector(m.index, storiface.FTUnsealed, storiface.PathSealing)
-	} else { // use existing
-		selector = newExistingSelector(m.index, sector.ID, storiface.FTUnsealed, false)
-	}
 
+	//var selector WorkerSelector
+	var err error
+	//if len(existingPieces) == 0 { // new
+	//	selector = newAllocSelector(m.index, storiface.FTUnsealed, storiface.PathSealing)
+	//} else { // use existing
+	//	selector = newExistingSelector(m.index, sector.ID, storiface.FTUnsealed, false)
+	//}
+	selector := newAddPieceSelector(m.index, sector.ID, storiface.FTUnsealed, storiface.PathSealing, len(existingPieces) > 0)
 	var out abi.PieceInfo
 	err = m.sched.Schedule(ctx, sector, sealtasks.TTAddPiece, selector, schedNop, func(ctx context.Context, w Worker) error {
 		p, err := m.waitSimpleCall(ctx)(w.AddPiece(ctx, sector, existingPieces, sz, r))

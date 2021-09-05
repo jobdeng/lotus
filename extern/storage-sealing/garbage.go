@@ -8,7 +8,7 @@ import (
 	"github.com/filecoin-project/specs-storage/storage"
 )
 
-func (m *Sealing) PledgeSector(ctx context.Context) (storage.SectorRef, error) {
+func (m *Sealing) PledgeSector(ctx context.Context, pledgeHostname string) (storage.SectorRef, error) {
 	m.startupWait.Wait()
 
 	m.inputLk.Lock()
@@ -37,7 +37,8 @@ func (m *Sealing) PledgeSector(ctx context.Context) (storage.SectorRef, error) {
 
 	log.Infof("Creating CC sector %d", sid)
 	return m.minerSector(spt, sid), m.sectors.Send(uint64(sid), SectorStartCC{
-		ID:         sid,
-		SectorType: spt,
+		ID:             sid,
+		SectorType:     spt,
+		PledgeHostname: pledgeHostname,
 	})
 }

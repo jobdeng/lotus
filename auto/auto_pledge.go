@@ -96,6 +96,7 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 	workerOfHost := make(map[string]*WorkerCountOfHost)
 	ap_workers := make(map[uuid.UUID]storiface.WorkerStats)
 	p1_workers := make(map[uuid.UUID]storiface.WorkerStats)
+	p2_workers := make(map[uuid.UUID]storiface.WorkerStats)
 	c2_workers := make(map[uuid.UUID]storiface.WorkerStats)
 
 	doPledge := false
@@ -105,6 +106,7 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 	totalAPTasks := 0
 	totalC2Tasks := 0
 	totalP1Reqs := 0
+	totalP2Reqs := 0
 	totalC2Reqs := 0
 
 	for wid, st := range wst {
@@ -138,6 +140,10 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 			p1_workers[wid] = st
 			workerCount.P1Workers = workerCount.P1Workers + 1
 		}
+		if _, ok := st.Info.AcceptTasks[sealtasks.TTPreCommit2]; ok && st.Enabled {
+			p2_workers[wid] = st
+			workerCount.P2Workers = workerCount.P2Workers + 1
+		}
 		workerOfHost[st.Info.Hostname] = workerCount
 	}
 
@@ -151,6 +157,8 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 		switch req.TaskType {
 		case sealtasks.TTPreCommit1:
 			totalP1Reqs = totalP1Reqs + 1
+		case sealtasks.TTPreCommit2:
+			totalP2Reqs = totalP2Reqs + 1
 		case sealtasks.TTCommit2:
 			totalC2Reqs = totalC2Reqs + 1
 		}
@@ -161,6 +169,14 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 		return fmt.Errorf("ap workers are busy")
 	}
 
+	if totalP1Reqs >= len(p1_workers) {
+		return fmt.Errorf("p1 workers are busy")
+	}
+
+	if totalP2Reqs >= len(p2_workers)*7 {
+		return fmt.Errorf("p2 workers are busy")
+	}
+
 	// 2. 检查C2-worker是否有空闲。少于3 * C2 worker的待处理任务数量，则可以做pledge。
 	if len(c2_workers) == 0 {
 		return fmt.Errorf("c2 workers are not running")
@@ -168,10 +184,6 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 	if totalC2Tasks >= len(c2_workers)*3 && totalC2Reqs >= len(c2_workers)*2 {
 		log.Infof("totalC2Tasks: %d, totalC2Reqs: %d", totalC2Tasks, totalC2Reqs)
 		return fmt.Errorf("c2 workers are busy")
-	}
-
-	if totalP1Reqs >= len(p1_workers) {
-		return fmt.Errorf("p1 workers are busy")
 	}
 
 	needRes := sectorstorage.ResourceTable[sealtasks.TTPreCommit1][proofType]
@@ -184,7 +196,7 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 		}
 		doPledge = sectorstorage.WorkerCanHandleRequest(needRes, sectorstorage.WorkerID(wid), "executeSectorsPledge", st)
 		if doPledge {
-			_, err := sealing.PledgeSector(ctx)
+			_, err := sealing.PledgeSector(ctx, st.Info.Hostname)
 			if err != nil {
 				return err
 			}
