@@ -242,6 +242,9 @@ type SectorInfo struct {
 	// non-zero if sector is faulty, epoch at which it will be permanently
 	// removed if it doesn't recover
 	Early abi.ChainEpoch
+
+	// which hostname do this sector pledge
+	PledgeHostname string
 }
 
 type SealedRef struct {

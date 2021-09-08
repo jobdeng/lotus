@@ -208,6 +208,8 @@ func (sm *StorageMinerAPI) SectorsStatus(ctx context.Context, sid abi.SectorNumb
 		InitialPledge:      big.Zero(),
 		OnTime:             0,
 		Early:              0,
+
+		PledgeHostname: info.PledgeHostname,
 	}
 
 	if !showOnChainInfo {

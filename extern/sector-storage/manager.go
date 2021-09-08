@@ -564,7 +564,7 @@ func (m *Manager) FinalizeSector(ctx context.Context, sector storage.SectorRef, 
 			moveUnsealed = storiface.FTNone
 		}
 	}
-
+	//TODO: 在P2完成时候，就把Cache和Sealed复制到storage的机器
 	err = m.sched.Schedule(ctx, sector, sealtasks.TTFetch, fetchSel,
 		m.schedFetch(sector, storiface.FTCache|storiface.FTSealed|moveUnsealed, storiface.PathStorage, storiface.AcquireMove),
 		func(ctx context.Context, w Worker) error {
@@ -734,4 +734,12 @@ func (m *Manager) GetLocalStore() *stores.Local {
 
 func (m *Manager) GetSchedDiagInfo() SchedDiagInfo {
 	return m.sched.GetSchedDiagInfo()
+}
+
+func (m *Manager) GetStorage() *stores.Remote {
+	return m.storage
+}
+
+func (m *Manager) GetIndex() stores.SectorIndex {
+	return m.index
 }

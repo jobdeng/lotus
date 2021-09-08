@@ -519,7 +519,7 @@ func (t *SectorInfo) MarshalCBOR(w io.Writer) error {
 		_, err := w.Write(cbg.CborNull)
 		return err
 	}
-	if _, err := w.Write([]byte{184, 26}); err != nil {
+	if _, err := w.Write([]byte{184, 27}); err != nil {
 		return err
 	}
 
@@ -1084,6 +1084,29 @@ func (t *SectorInfo) MarshalCBOR(w io.Writer) error {
 		if err := v.MarshalCBOR(w); err != nil {
 			return err
 		}
+	}
+
+	// t.PledgeHostname (string) (string)
+	if len("PledgeHostname") > cbg.MaxLength {
+		return xerrors.Errorf("Value in field \"PledgeHostname\" was too long")
+	}
+
+	if err := cbg.WriteMajorTypeHeaderBuf(scratch, w, cbg.MajTextString, uint64(len("PledgeHostname"))); err != nil {
+		return err
+	}
+	if _, err := io.WriteString(w, string("PledgeHostname")); err != nil {
+		return err
+	}
+
+	if len(t.PledgeHostname) > cbg.MaxLength {
+		return xerrors.Errorf("Value in field t.PledgeHostname was too long")
+	}
+
+	if err := cbg.WriteMajorTypeHeaderBuf(scratch, w, cbg.MajTextString, uint64(len(t.PledgeHostname))); err != nil {
+		return err
+	}
+	if _, err := io.WriteString(w, string(t.PledgeHostname)); err != nil {
+		return err
 	}
 	return nil
 }
@@ -1665,6 +1688,18 @@ func (t *SectorInfo) UnmarshalCBOR(r io.Reader) error {
 				}
 
 				t.Log[i] = v
+			}
+
+			// t.PledgeHostname (string) (string)
+		case "PledgeHostname":
+
+			{
+				sval, err := cbg.ReadStringBuf(br, scratch)
+				if err != nil {
+					return err
+				}
+
+				t.PledgeHostname = string(sval)
 			}
 
 		default:

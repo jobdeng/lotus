@@ -3,6 +3,7 @@ package itests
 import (
 	"context"
 	"fmt"
+	"github.com/filecoin-project/go-state-types/abi"
 	"strings"
 	"testing"
 	"time"
@@ -28,6 +29,12 @@ func TestPledgeSectors(t *testing.T) {
 		ens.InterconnectAll().BeginMining(blockTime)
 
 		miner.PledgeSectors(ctx, nSectors, 0, nil)
+		info, err := miner.SectorsStatus(ctx, abi.SectorNumber(3), false)
+		if err != nil {
+			t.Errorf("SectorsStatus failed, err: %v", err)
+			return
+		}
+		fmt.Printf("sectors PledgeHostname: %s\n", info.PledgeHostname)
 	}
 
 	t.Run("1", func(t *testing.T) {

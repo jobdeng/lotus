@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/filecoin-project/go-state-types/abi"
+	"github.com/filecoin-project/go-statestore"
 	"github.com/filecoin-project/lotus/auto"
 	sectorstorage "github.com/filecoin-project/lotus/extern/sector-storage"
 	"github.com/filecoin-project/lotus/extern/sector-storage/fsutil"
@@ -20,6 +21,7 @@ import (
 	minerstorage "github.com/filecoin-project/lotus/storage"
 	"github.com/filecoin-project/specs-storage/storage"
 	"github.com/google/uuid"
+	"github.com/ipfs/go-datastore"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/fx"
 	"golang.org/x/xerrors"
@@ -85,46 +87,58 @@ func TestAutoSectorsPledge(t *testing.T) {
 
 func addWorkers(ctx context.Context, m *sectorstorage.Manager, ap int, p1 int, p2 int, c2 int) error {
 
-	mockSeal := mock.NewMockSectorMgr(nil)
+	//mockSeal := mock.NewMockSectorMgr(nil)
 	for i := 0; i < ap; i++ {
-		err := m.AddWorker(ctx, newTestWorker(
-			sectorstorage.WorkerConfig{
-				TaskTypes: []sealtasks.TaskType{sealtasks.TTAddPiece},
-			},
-			m.GetLocalStore(), m, mockSeal))
+		worker := sectorstorage.NewLocalWorker(sectorstorage.WorkerConfig{TaskTypes: []sealtasks.TaskType{sealtasks.TTAddPiece}},
+		m.GetStorage(), m.GetLocalStore(), m.GetIndex(), m, statestore.New(datastore.NewMapDatastore()), "AP-Worker")
+		err := m.AddWorker(ctx, worker)
+		//err := m.AddWorker(ctx, newTestWorker(
+		//	sectorstorage.WorkerConfig{
+		//		TaskTypes: []sealtasks.TaskType{sealtasks.TTAddPiece},
+		//	},
+		//	m.GetLocalStore(), m, mockSeal))
 		if err != nil {
 			return err
 		}
 	}
 
 	for i := 0; i < p1; i++ {
-		err := m.AddWorker(ctx, newTestWorker(
-			sectorstorage.WorkerConfig{
-				TaskTypes: []sealtasks.TaskType{sealtasks.TTPreCommit1},
-			},
-			m.GetLocalStore(), m, mockSeal))
+		worker := sectorstorage.NewLocalWorker(sectorstorage.WorkerConfig{TaskTypes: []sealtasks.TaskType{sealtasks.TTPreCommit1}},
+			m.GetStorage(), m.GetLocalStore(), m.GetIndex(), m, statestore.New(datastore.NewMapDatastore()), "P1-Worker")
+		err := m.AddWorker(ctx, worker)
+		//err := m.AddWorker(ctx, newTestWorker(
+		//	sectorstorage.WorkerConfig{
+		//		TaskTypes: []sealtasks.TaskType{sealtasks.TTPreCommit1},
+		//	},
+		//	m.GetLocalStore(), m, mockSeal))
 		if err != nil {
 			return err
 		}
 	}
 
 	for i := 0; i < p2; i++ {
-		err := m.AddWorker(ctx, newTestWorker(
-			sectorstorage.WorkerConfig{
-				TaskTypes: []sealtasks.TaskType{sealtasks.TTPreCommit2},
-			},
-			m.GetLocalStore(), m, mockSeal))
+		worker := sectorstorage.NewLocalWorker(sectorstorage.WorkerConfig{TaskTypes: []sealtasks.TaskType{sealtasks.TTPreCommit2}},
+			m.GetStorage(), m.GetLocalStore(), m.GetIndex(), m, statestore.New(datastore.NewMapDatastore()), "P2-Worker")
+		err := m.AddWorker(ctx, worker)
+		//err := m.AddWorker(ctx, newTestWorker(
+		//	sectorstorage.WorkerConfig{
+		//		TaskTypes: []sealtasks.TaskType{sealtasks.TTPreCommit2},
+		//	},
+		//	m.GetLocalStore(), m, mockSeal))
 		if err != nil {
 			return err
 		}
 	}
 
 	for i := 0; i < c2; i++ {
-		err := m.AddWorker(ctx, newTestWorker(
-			sectorstorage.WorkerConfig{
-				TaskTypes: []sealtasks.TaskType{sealtasks.TTCommit2},
-			},
-			m.GetLocalStore(), m, mockSeal))
+		worker := sectorstorage.NewLocalWorker(sectorstorage.WorkerConfig{TaskTypes: []sealtasks.TaskType{sealtasks.TTCommit2}},
+			m.GetStorage(), m.GetLocalStore(), m.GetIndex(), m, statestore.New(datastore.NewMapDatastore()), "C2-Worker")
+		err := m.AddWorker(ctx, worker)
+		//err := m.AddWorker(ctx, newTestWorker(
+		//	sectorstorage.WorkerConfig{
+		//		TaskTypes: []sealtasks.TaskType{sealtasks.TTCommit2},
+		//	},
+		//	m.GetLocalStore(), m, mockSeal))
 		if err != nil {
 			return err
 		}
@@ -196,7 +210,7 @@ func (t *testWorker) SealPreCommit1(ctx context.Context, sector storage.SectorRe
 
 		t.pc1lk.Lock()
 		defer t.pc1lk.Unlock()
-		time.Sleep(10 * time.Second)
+		time.Sleep(10 * time.Minute)
 		p1o, err := t.mockSeal.SealPreCommit1(ctx, sector, ticket, pieces)
 		if err := t.ret.ReturnSealPreCommit1(ctx, ci, p1o, toCallError(err)); err != nil {
 			//log.Error(err)

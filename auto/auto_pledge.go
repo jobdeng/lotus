@@ -16,7 +16,7 @@ import (
 
 var log = logging.Logger("auto")
 
-var AutoSectorsPledgeInterval = 10 * time.Minute
+var AutoSectorsPledgeInterval = 5 * time.Minute
 
 type AutoSectorsPledge struct {
 	storageMgr     *sectorstorage.Manager
@@ -85,15 +85,7 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 		return err
 	}
 
-	// 查看调度器有多少个C2排队
-	type WorkerCountOfHost = struct {
-		APWorkers uint64
-		P1Workers uint64
-		P2Workers uint64
-		C2Workers uint64
-	}
-
-	workerOfHost := make(map[string]*WorkerCountOfHost)
+	tasksCountOfHost := make(map[string]*TasksCountOfHost)
 	ap_workers := make(map[uuid.UUID]storiface.WorkerStats)
 	p1_workers := make(map[uuid.UUID]storiface.WorkerStats)
 	p2_workers := make(map[uuid.UUID]storiface.WorkerStats)
@@ -103,10 +95,7 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 
 	wst := asp.storageMgr.WorkerStats()
 
-	totalAPTasks := 0
-	totalC2Tasks := 0
-	totalP1Reqs := 0
-	totalP2Reqs := 0
+	totalC2Ass := 0
 	totalC2Reqs := 0
 
 	for wid, st := range wst {
@@ -122,87 +111,153 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 			}
 		}
 
-		workerCount := workerOfHost[st.Info.Hostname]
+		workerCount := tasksCountOfHost[st.Info.Hostname]
 		if workerCount == nil {
-			workerCount = &WorkerCountOfHost{}
+			workerCount = NewTasksCountOfHost()
 		}
+
+		//统计各个类型的worker数
 		if _, ok := st.Info.AcceptTasks[sealtasks.TTAddPiece]; ok && st.Enabled {
-			totalAPTasks += len(jobs[wid])
+			//totalAPTasks += len(jobs[wid])
 			ap_workers[wid] = st
-			workerCount.APWorkers = workerCount.APWorkers + 1
-		}
-		if _, ok := st.Info.AcceptTasks[sealtasks.TTCommit2]; ok && st.Enabled {
-			totalC2Tasks += len(jobs[wid])
-			c2_workers[wid] = st
-			workerCount.C2Workers = workerCount.C2Workers + 1
+			workerCount.APWorkers = append(workerCount.APWorkers, wid)
+
 		}
 		if _, ok := st.Info.AcceptTasks[sealtasks.TTPreCommit1]; ok && st.Enabled {
 			p1_workers[wid] = st
-			workerCount.P1Workers = workerCount.P1Workers + 1
+			workerCount.P1Workers = append(workerCount.P1Workers, wid)
 		}
 		if _, ok := st.Info.AcceptTasks[sealtasks.TTPreCommit2]; ok && st.Enabled {
 			p2_workers[wid] = st
-			workerCount.P2Workers = workerCount.P2Workers + 1
+			workerCount.P2Workers = append(workerCount.P2Workers, wid)
 		}
-		workerOfHost[st.Info.Hostname] = workerCount
+		if _, ok := st.Info.AcceptTasks[sealtasks.TTCommit2]; ok && st.Enabled {
+			//totalC2Tasks += len(jobs[wid])
+			c2_workers[wid] = st
+			workerCount.C2Workers = append(workerCount.C2Workers, wid)
+		}
+
+		//统计已分配任务数
+		for _, wj := range jobs[wid] {
+			switch wj.Task {
+			case sealtasks.TTAddPiece:
+				workerCount.APTasksAss = workerCount.APTasksAss + 1
+			case sealtasks.TTPreCommit1:
+				workerCount.P1TasksAss = workerCount.P1TasksAss + 1
+			case sealtasks.TTPreCommit2:
+				workerCount.P2TasksAss = workerCount.P2TasksAss + 1
+			case sealtasks.TTCommit2:
+				totalC2Ass = totalC2Ass + 1
+				//workerCount.C2TasksAss = workerCount.C2TasksAss + 1
+
+			}
+
+		}
+
+		tasksCountOfHost[st.Info.Hostname] = workerCount
 	}
 
 	schedInfo := asp.storageMgr.GetSchedDiagInfo()
 	for _, req := range schedInfo.Requests {
-		//log.Infof("req: %+v", req)
-		//if req.TaskType == sealtasks.TTCommit2 {
-		//	totalC2Reqs = totalC2Reqs + 1
-		//}
+
+		sectorInfo, terr := sealing.GetSectorInfo(req.Sector.Number)
+		if terr != nil {
+			log.Errorf("auto pledge GetSectorInfo failed, err: %v", terr)
+			continue
+		}
+		if len(sectorInfo.PledgeHostname) == 0 {
+			log.Warnf("auto pledge sector info is empty")
+			continue
+		}
+		workerCount := tasksCountOfHost[sectorInfo.PledgeHostname]
+		if workerCount == nil {
+			workerCount = &TasksCountOfHost{}
+		}
 
 		switch req.TaskType {
+		case sealtasks.TTAddPiece:
+			workerCount.APTasksReq = workerCount.APTasksReq + 1
 		case sealtasks.TTPreCommit1:
-			totalP1Reqs = totalP1Reqs + 1
+			workerCount.P1TasksReq = workerCount.P1TasksReq + 1
 		case sealtasks.TTPreCommit2:
-			totalP2Reqs = totalP2Reqs + 1
+			workerCount.P2TasksReq = workerCount.P2TasksReq + 1
 		case sealtasks.TTCommit2:
+			//C2在证明机，被多个seal worker同享使用，需要单独计算总数
 			totalC2Reqs = totalC2Reqs + 1
+			//workerCount.C2TasksReq = workerCount.C2TasksReq + 1
 		}
+		tasksCountOfHost[sectorInfo.PledgeHostname] = workerCount
 	}
 
-	// 1. 检查是否有空闲的AP-worker。
-	if totalAPTasks >= len(ap_workers) {
-		return fmt.Errorf("ap workers are busy")
-	}
-
-	if totalP1Reqs >= len(p1_workers) {
-		return fmt.Errorf("p1 workers are busy")
-	}
-
-	if totalP2Reqs >= len(p2_workers)*7 {
-		return fmt.Errorf("p2 workers are busy")
-	}
-
-	// 2. 检查C2-worker是否有空闲。少于3 * C2 worker的待处理任务数量，则可以做pledge。
+	// 1.a 检查C2-worker是否有存在。
 	if len(c2_workers) == 0 {
 		return fmt.Errorf("c2 workers are not running")
 	}
-	if totalC2Tasks >= len(c2_workers)*3 && totalC2Reqs >= len(c2_workers)*2 {
-		log.Infof("totalC2Tasks: %d, totalC2Reqs: %d", totalC2Tasks, totalC2Reqs)
-		return fmt.Errorf("c2 workers are busy")
+	// 1.b 检查C2-worker是否有过多请求
+	if totalC2Reqs + totalC2Ass >= len(c2_workers)*9 {
+		return fmt.Errorf("c2 workers are not busy")
 	}
 
 	needRes := sectorstorage.ResourceTable[sealtasks.TTPreCommit1][proofType]
-	for wid, st := range p1_workers {
-		workerCount := workerOfHost[st.Info.Hostname]
-		if workerCount.APWorkers == 0 {
-			//AP worker is not exist, can not pledge sector
-			log.Infof("Host: %s, AP worker is not exist, can not pledge sector", st.Info.Hostname)
+	for hostname, taskCount := range tasksCountOfHost {
+		// 2. 检查是否有空闲的AP-worker。
+		if taskCount.APTasksAss >= len(taskCount.APWorkers) {
+			log.Infof("%s: ap workers are busy", hostname)
 			continue
 		}
-		doPledge = sectorstorage.WorkerCanHandleRequest(needRes, sectorstorage.WorkerID(wid), "executeSectorsPledge", st)
-		if doPledge {
-			_, err := sealing.PledgeSector(ctx, st.Info.Hostname)
-			if err != nil {
-				return err
+
+		// 3. 检查P1任务是否有过多请求
+		if taskCount.P1TasksReq >= len(taskCount.P1Workers) {
+			log.Infof("%s: p1 workers are busy", hostname)
+			continue
+		}
+
+		// 4. 检查P2任务是否有过多请求
+		if taskCount.P2TasksReq >= len(taskCount.P2Workers)*12 {
+			log.Infof("%s: p2 workers are busy", hostname)
+			continue
+		}
+
+		for _, wid := range taskCount.P1Workers {
+			st := p1_workers[wid]
+			doPledge = sectorstorage.WorkerCanHandleRequest(needRes, sectorstorage.WorkerID(wid), "executeSectorsPledge", st)
+			if doPledge {
+				_, err := sealing.PledgeSector(ctx, st.Info.Hostname)
+				if err != nil {
+					return err
+				}
+				return nil
 			}
-			return nil
 		}
 	}
 
-	return fmt.Errorf("p1 workers are busy")
+	return fmt.Errorf("no workers can pledge sectors now")
+}
+
+// host主机的任务统计数
+type TasksCountOfHost = struct {
+	APWorkers []uuid.UUID
+	P1Workers []uuid.UUID
+	P2Workers []uuid.UUID
+	C2Workers []uuid.UUID
+
+	APTasksAss int
+	P1TasksAss int
+	P2TasksAss int
+	C2TasksAss int
+
+	APTasksReq int
+	P1TasksReq int
+	P2TasksReq int
+	C2TasksReq int
+}
+
+func NewTasksCountOfHost() *TasksCountOfHost {
+	t := TasksCountOfHost{
+		APWorkers: make([]uuid.UUID, 0),
+		P1Workers: make([]uuid.UUID, 0),
+		P2Workers: make([]uuid.UUID, 0),
+		C2Workers: make([]uuid.UUID, 0),
+	}
+	return &t
 }
