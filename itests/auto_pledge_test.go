@@ -4,31 +4,25 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-statestore"
 	"github.com/filecoin-project/lotus/auto"
 	sectorstorage "github.com/filecoin-project/lotus/extern/sector-storage"
 	"github.com/filecoin-project/lotus/extern/sector-storage/fsutil"
-	"github.com/filecoin-project/lotus/extern/sector-storage/mock"
 	"github.com/filecoin-project/lotus/extern/sector-storage/sealtasks"
 	"github.com/filecoin-project/lotus/extern/sector-storage/stores"
-	"github.com/filecoin-project/lotus/extern/sector-storage/storiface"
 	"github.com/filecoin-project/lotus/itests/kit"
 	"github.com/filecoin-project/lotus/node"
 	"github.com/filecoin-project/lotus/node/config"
 	"github.com/filecoin-project/lotus/node/modules/helpers"
 	"github.com/filecoin-project/lotus/node/repo"
 	minerstorage "github.com/filecoin-project/lotus/storage"
-	"github.com/filecoin-project/specs-storage/storage"
 	"github.com/google/uuid"
 	"github.com/ipfs/go-datastore"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/fx"
-	"golang.org/x/xerrors"
 	"io/ioutil"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 	"time"
 )
@@ -59,7 +53,7 @@ func TestAutoSectorsPledge(t *testing.T) {
 				node.Override(node.AutoSectorsPledgeKey, func(mctx helpers.MetricsCtx, lc fx.Lifecycle, miner *minerstorage.Miner, storageMgr *sectorstorage.Manager) (*auto.AutoSectorsPledge, error) {
 					ctx := helpers.LifecycleCtx(mctx, lc)
 					//添加workers
-					err := addWorkers(ctx, storageMgr, 1, 1, 1, 1)
+					err := addWorkers(t, ctx, storageMgr, 1, 1, 1, 1)
 					if err != nil {
 						return nil, err
 					}
@@ -85,60 +79,46 @@ func TestAutoSectorsPledge(t *testing.T) {
 	<-endRunning
 }
 
-func addWorkers(ctx context.Context, m *sectorstorage.Manager, ap int, p1 int, p2 int, c2 int) error {
+func addWorkers(t *testing.T, ctx context.Context, m *sectorstorage.Manager, ap int, p1 int, p2 int, c2 int) error {
 
-	//mockSeal := mock.NewMockSectorMgr(nil)
+	localStore, err := stores.NewLocal(ctx, newTestSealing(t), m.GetIndex(), []string{})
+	require.NoError(t, err)
+
+	remote := stores.NewRemote(localStore, m.GetIndex(), nil, 1, &stores.DefaultPartialFileHandler{})
+
+	requiredTasks := []sealtasks.TaskType{sealtasks.TTFetch, sealtasks.TTCommit1, sealtasks.TTFinalize}
+
 	for i := 0; i < ap; i++ {
-		worker := sectorstorage.NewLocalWorker(sectorstorage.WorkerConfig{TaskTypes: []sealtasks.TaskType{sealtasks.TTAddPiece}},
-		m.GetStorage(), m.GetLocalStore(), m.GetIndex(), m, statestore.New(datastore.NewMapDatastore()), "AP-Worker")
+		worker := sectorstorage.NewLocalWorker(sectorstorage.WorkerConfig{TaskTypes: append(requiredTasks, sealtasks.TTAddPiece)},
+			remote, localStore, m.GetIndex(), m, statestore.New(datastore.NewMapDatastore()), "AP-Worker")
 		err := m.AddWorker(ctx, worker)
-		//err := m.AddWorker(ctx, newTestWorker(
-		//	sectorstorage.WorkerConfig{
-		//		TaskTypes: []sealtasks.TaskType{sealtasks.TTAddPiece},
-		//	},
-		//	m.GetLocalStore(), m, mockSeal))
 		if err != nil {
 			return err
 		}
 	}
 
 	for i := 0; i < p1; i++ {
-		worker := sectorstorage.NewLocalWorker(sectorstorage.WorkerConfig{TaskTypes: []sealtasks.TaskType{sealtasks.TTPreCommit1}},
-			m.GetStorage(), m.GetLocalStore(), m.GetIndex(), m, statestore.New(datastore.NewMapDatastore()), "P1-Worker")
+		worker := sectorstorage.NewLocalWorker(sectorstorage.WorkerConfig{TaskTypes: append(requiredTasks, sealtasks.TTPreCommit1)},
+			remote, localStore, m.GetIndex(), m, statestore.New(datastore.NewMapDatastore()), "P1-Worker")
 		err := m.AddWorker(ctx, worker)
-		//err := m.AddWorker(ctx, newTestWorker(
-		//	sectorstorage.WorkerConfig{
-		//		TaskTypes: []sealtasks.TaskType{sealtasks.TTPreCommit1},
-		//	},
-		//	m.GetLocalStore(), m, mockSeal))
 		if err != nil {
 			return err
 		}
 	}
 
 	for i := 0; i < p2; i++ {
-		worker := sectorstorage.NewLocalWorker(sectorstorage.WorkerConfig{TaskTypes: []sealtasks.TaskType{sealtasks.TTPreCommit2}},
-			m.GetStorage(), m.GetLocalStore(), m.GetIndex(), m, statestore.New(datastore.NewMapDatastore()), "P2-Worker")
+		worker := sectorstorage.NewLocalWorker(sectorstorage.WorkerConfig{TaskTypes: append(requiredTasks, sealtasks.TTPreCommit2)},
+			remote, localStore, m.GetIndex(), m, statestore.New(datastore.NewMapDatastore()), "P2-Worker")
 		err := m.AddWorker(ctx, worker)
-		//err := m.AddWorker(ctx, newTestWorker(
-		//	sectorstorage.WorkerConfig{
-		//		TaskTypes: []sealtasks.TaskType{sealtasks.TTPreCommit2},
-		//	},
-		//	m.GetLocalStore(), m, mockSeal))
 		if err != nil {
 			return err
 		}
 	}
 
 	for i := 0; i < c2; i++ {
-		worker := sectorstorage.NewLocalWorker(sectorstorage.WorkerConfig{TaskTypes: []sealtasks.TaskType{sealtasks.TTCommit2}},
-			m.GetStorage(), m.GetLocalStore(), m.GetIndex(), m, statestore.New(datastore.NewMapDatastore()), "C2-Worker")
+		worker := sectorstorage.NewLocalWorker(sectorstorage.WorkerConfig{TaskTypes: append(requiredTasks, sealtasks.TTCommit2)},
+			remote, localStore, m.GetIndex(), m, statestore.New(datastore.NewMapDatastore()), "C2-Worker")
 		err := m.AddWorker(ctx, worker)
-		//err := m.AddWorker(ctx, newTestWorker(
-		//	sectorstorage.WorkerConfig{
-		//		TaskTypes: []sealtasks.TaskType{sealtasks.TTCommit2},
-		//	},
-		//	m.GetLocalStore(), m, mockSeal))
 		if err != nil {
 			return err
 		}
@@ -146,137 +126,6 @@ func addWorkers(ctx context.Context, m *sectorstorage.Manager, ap int, p1 int, p
 
 	return nil
 }
-
-type testWorker struct {
-	acceptTasks map[sealtasks.TaskType]struct{}
-	lstor       *stores.Local
-	ret         storiface.WorkerReturn
-
-	mockSeal *mock.SectorMgr
-
-	pc1s    int
-	pc1lk   sync.Mutex
-	pc1wait *sync.WaitGroup
-
-	session uuid.UUID
-
-	sectorstorage.Worker
-}
-
-func newTestWorker(wcfg sectorstorage.WorkerConfig, lstor *stores.Local, ret storiface.WorkerReturn, mockSeal *mock.SectorMgr) *testWorker {
-	acceptTasks := map[sealtasks.TaskType]struct{}{}
-	for _, taskType := range wcfg.TaskTypes {
-		acceptTasks[taskType] = struct{}{}
-	}
-
-	return &testWorker{
-		acceptTasks: acceptTasks,
-		lstor:       lstor,
-		ret:         ret,
-
-		mockSeal: mockSeal,
-
-		session: uuid.New(),
-	}
-}
-
-func (t *testWorker) asyncCall(sector storage.SectorRef, work func(ci storiface.CallID)) (storiface.CallID, error) {
-	ci := storiface.CallID{
-		Sector: sector.ID,
-		ID:     uuid.New(),
-	}
-
-	go work(ci)
-
-	return ci, nil
-}
-
-func (t *testWorker) AddPiece(ctx context.Context, sector storage.SectorRef, pieceSizes []abi.UnpaddedPieceSize, newPieceSize abi.UnpaddedPieceSize, pieceData storage.Data) (storiface.CallID, error) {
-	return t.asyncCall(sector, func(ci storiface.CallID) {
-		p, err := t.mockSeal.AddPiece(ctx, sector, pieceSizes, newPieceSize, pieceData)
-		if err := t.ret.ReturnAddPiece(ctx, ci, p, toCallError(err)); err != nil {
-			//log.Error(err)
-		}
-	})
-}
-
-func (t *testWorker) SealPreCommit1(ctx context.Context, sector storage.SectorRef, ticket abi.SealRandomness, pieces []abi.PieceInfo) (storiface.CallID, error) {
-	return t.asyncCall(sector, func(ci storiface.CallID) {
-		t.pc1s++
-
-		if t.pc1wait != nil {
-			t.pc1wait.Done()
-		}
-
-		t.pc1lk.Lock()
-		defer t.pc1lk.Unlock()
-		time.Sleep(10 * time.Minute)
-		p1o, err := t.mockSeal.SealPreCommit1(ctx, sector, ticket, pieces)
-		if err := t.ret.ReturnSealPreCommit1(ctx, ci, p1o, toCallError(err)); err != nil {
-			//log.Error(err)
-		}
-	})
-}
-
-func (t *testWorker) SealPreCommit2(ctx context.Context, sector storage.SectorRef, pc1o storage.PreCommit1Out) (storiface.CallID, error) {
-	return t.asyncCall(sector, func(ci storiface.CallID) {
-		p2o, err := t.mockSeal.SealPreCommit2(ctx, sector, pc1o)
-		if err := t.ret.ReturnSealPreCommit2(ctx, ci, p2o, toCallError(err)); err != nil {
-			//log.Error(err)
-		}
-	})
-}
-
-func (t *testWorker) Fetch(ctx context.Context, sector storage.SectorRef, fileType storiface.SectorFileType, ptype storiface.PathType, am storiface.AcquireMode) (storiface.CallID, error) {
-	return t.asyncCall(sector, func(ci storiface.CallID) {
-		if err := t.ret.ReturnFetch(ctx, ci, nil); err != nil {
-			//log.Error(err)
-		}
-	})
-}
-
-func (t *testWorker) TaskTypes(ctx context.Context) (map[sealtasks.TaskType]struct{}, error) {
-	return t.acceptTasks, nil
-}
-
-func (t *testWorker) Paths(ctx context.Context) ([]stores.StoragePath, error) {
-	return t.lstor.Local(ctx)
-}
-
-func (t *testWorker) Info(ctx context.Context) (storiface.WorkerInfo, error) {
-	res := sectorstorage.ResourceTable[sealtasks.TTPreCommit2][abi.RegisteredSealProof_StackedDrg2KiBV1]
-	hostname, _ := os.Hostname()
-	return storiface.WorkerInfo{
-		Hostname: hostname,
-		Resources: storiface.WorkerResources{
-			MemPhysical: res.MinMemory * 100,
-			MemSwap:     0,
-			MemReserved: res.MinMemory,
-			CPUs:        32,
-			GPUs:        nil,
-		},
-		AcceptTasks: t.acceptTasks,
-	}, nil
-}
-
-func (t *testWorker) Session(context.Context) (uuid.UUID, error) {
-	return t.session, nil
-}
-
-func (t *testWorker) Close() error {
-	panic("implement me")
-}
-
-func toCallError(err error) *storiface.CallError {
-	var serr *storiface.CallError
-	if err != nil && !xerrors.As(err, &serr) {
-		serr = storiface.Err(storiface.ErrUnknown, err)
-	}
-
-	return serr
-}
-
-var _ sectorstorage.Worker = &testWorker{}
 
 type testStorage stores.StorageConfig
 
@@ -291,9 +140,33 @@ func newTestStorage(t *testing.T) *testStorage {
 	{
 		b, err := json.MarshalIndent(&stores.LocalStorageMeta{
 			ID:       stores.ID(uuid.New().String()),
-			Weight:   1,
-			CanSeal:  true,
+			Weight:   10,
+			CanSeal:  false,
 			CanStore: true,
+		}, "", "  ")
+		require.NoError(t, err)
+
+		err = ioutil.WriteFile(filepath.Join(tp, "sectorstore.json"), b, 0644)
+		require.NoError(t, err)
+	}
+
+	return &testStorage{
+		StoragePaths: []stores.LocalPath{
+			{Path: tp},
+		},
+	}
+}
+
+func newTestSealing(t *testing.T) *testStorage {
+	tp, err := ioutil.TempDir(os.TempDir(), "sector-sealing-test-")
+	require.NoError(t, err)
+
+	{
+		b, err := json.MarshalIndent(&stores.LocalStorageMeta{
+			ID:       stores.ID(uuid.New().String()),
+			Weight:   10,
+			CanSeal:  true,
+			CanStore: false,
 		}, "", "  ")
 		require.NoError(t, err)
 

@@ -205,6 +205,7 @@ func (st *Local) OpenPath(ctx context.Context, p string) error {
 		MaxStorage: meta.MaxStorage,
 		CanSeal:    meta.CanSeal,
 		CanStore:   meta.CanStore,
+		LocalPath:  p,
 	}, fst)
 	if err != nil {
 		return xerrors.Errorf("declaring storage in index: %w", err)
@@ -269,6 +270,7 @@ func (st *Local) Redeclare(ctx context.Context) error {
 			MaxStorage: meta.MaxStorage,
 			CanSeal:    meta.CanSeal,
 			CanStore:   meta.CanStore,
+			LocalPath:  p.local,
 		}, fst)
 		if err != nil {
 			return xerrors.Errorf("redeclaring storage in index: %w", err)
@@ -511,6 +513,9 @@ func (st *Local) AcquireSector(ctx context.Context, sid storage.SectorRef, exist
 }
 
 func (st *Local) Local(ctx context.Context) ([]StoragePath, error) {
+
+	st.loadIndexStoragePaths(ctx)
+
 	st.localLk.RLock()
 	defer st.localLk.RUnlock()
 
@@ -694,3 +699,57 @@ func (st *Local) FsStat(ctx context.Context, id ID) (fsutil.FsStat, error) {
 }
 
 var _ Store = &Local{}
+
+// loadIndexStoragePaths load all storage path of Index
+func (st *Local) loadIndexStoragePaths(ctx context.Context) error {
+
+	//ssize=0，为了加载所有index中所有storage路径
+	storages, err := st.index.StorageBestAlloc(ctx, storiface.FTCache|storiface.FTSealed, 0, storiface.PathStorage)
+	if err != nil {
+		return err
+	}
+	for _, info := range storages {
+
+		if len(info.LocalPath) == 0 {
+			continue
+		}
+
+		//检查本地路径是否和有这些storage相同的路径
+		mb, err := ioutil.ReadFile(filepath.Join(info.LocalPath, MetaFile))
+		if err != nil {
+			log.Warnf("reading storage metadata for %s: %w", info.LocalPath, err)
+			continue
+		}
+
+		var meta LocalStorageMeta
+		if err := json.Unmarshal(mb, &meta); err != nil {
+			log.Warnf("unmarshalling storage metadata for %s: %w", info.LocalPath, err)
+			continue
+		}
+
+		if meta.ID != info.ID {
+			log.Warnf("local's storage ID is not equal index's storage ID, (%s != %s)", meta.ID, info.ID)
+			continue
+		}
+
+		if _, ok := st.paths[meta.ID]; ok {
+			continue
+		}
+
+		st.localLk.Lock()
+
+		out := &path{
+			local: info.LocalPath,
+
+			maxStorage:   meta.MaxStorage,
+			reserved:     0,
+			reservations: map[abi.SectorID]storiface.SectorFileType{},
+		}
+
+		st.paths[meta.ID] = out
+
+		st.localLk.Unlock()
+	}
+
+	return nil
+}

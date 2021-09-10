@@ -34,6 +34,8 @@ type StorageInfo struct {
 
 	CanSeal  bool
 	CanStore bool
+
+	LocalPath string	// local storage path which has `sectorstore.json`
 }
 
 type HealthReport struct {
