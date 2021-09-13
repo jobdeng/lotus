@@ -473,7 +473,9 @@ func (sh *scheduler) trySched() {
 					continue
 				}
 				//log.Debugf("delete worker: %s sector: %d task: %s", worker.info.WorkerName, task.sector.ID.Number, task.taskType)
+				worker.lk.Lock()
 				delete(worker.sectorProcessStatus, task.sector.ID)
+				worker.lk.Unlock()
 				continue
 			}
 

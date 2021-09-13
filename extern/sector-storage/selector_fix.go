@@ -65,8 +65,11 @@ func (s *fixSelector) Ok(ctx context.Context, task sealtasks.TaskType, spt abi.R
 	//		}
 	//	}
 	case sealtasks.TTPreCommit2:
+		whnd.lk.Lock()
+		processStatus := whnd.sectorProcessStatus
+		whnd.lk.Unlock()
 		// worker有在做P2，没有完成就不接新的P2任务
-		for _, sealTask := range whnd.sectorProcessStatus {
+		for _, sealTask := range processStatus {
 			if sealTask.Task == sealtasks.TTPreCommit2 {
 				if sealTask.Status == SealTaskStatusAccepted || sealTask.Status == SealTaskStatusWorking {
 					return false, nil
@@ -99,10 +102,12 @@ func (s *fixSelector) Ok(ctx context.Context, task sealtasks.TaskType, spt abi.R
 
 	for _, info := range best {
 		if _, ok := have[info.ID]; ok {
+			whnd.lk.Lock()
 			whnd.sectorProcessStatus[s.sector] = &SealTaskStatus{
 				Task:   task,
 				Status: SealTaskStatusAccepted,
 			}
+			whnd.lk.Unlock()
 			return true, nil
 		}
 	}

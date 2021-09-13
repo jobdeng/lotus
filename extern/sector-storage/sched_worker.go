@@ -434,11 +434,13 @@ func (sw *schedWorker) startProcessingTask(taskDone chan struct{}, req *workerRe
 			sh.workersLk.Unlock()
 			defer sh.workersLk.Lock() // we MUST return locked from this function
 
+			w.lk.Lock()
 			// 纪录work进行中的任务
 			w.sectorProcessStatus[req.sector.ID] = &SealTaskStatus{
 				Task:      req.taskType,
 				Status: SealTaskStatusWorking,
 			}
+			w.lk.Unlock()
 
 			select {
 			case taskDone <- struct{}{}:
@@ -448,9 +450,11 @@ func (sw *schedWorker) startProcessingTask(taskDone chan struct{}, req *workerRe
 			// Do the work!
 			err = req.work(req.ctx, sh.workTracker.worker(sw.wid, w.info, w.workerRpc))	//一般会是一个阻塞当前线程的工作
 
+			w.lk.Lock()
 			sts := w.sectorProcessStatus[req.sector.ID]
 			sts.Status = SealTaskStatusFinished
 			w.sectorProcessStatus[req.sector.ID] = sts
+			w.lk.Unlock()
 			log.Debugf("worker: %s finish sector: %d, task: %s", w.info.WorkerName, req.sector.ID.Number, req.taskType)
 			if err != nil {
 				log.Errorf("worker: %s do task: %s failed: %v", w.info.WorkerName, req.taskType, err)
