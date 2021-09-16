@@ -18,6 +18,11 @@ var log = logging.Logger("auto")
 
 var AutoSectorsPledgeInterval = 5 * time.Minute
 
+type TasksLimit struct {
+	Assigned int
+	Request int
+}
+
 type AutoSectorsPledge struct {
 	storageMgr     *sectorstorage.Manager
 	miner          *storage.Miner
@@ -194,7 +199,8 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 		return fmt.Errorf("c2 workers are not running")
 	}
 	// 1.b 检查C2-worker是否有过多请求
-	if totalC2Reqs + totalC2Ass >= len(c2_workers)*9 {
+	c2TasksLimit := TasksLimitTable[sealtasks.TTCommit2][proofType]
+	if totalC2Reqs + totalC2Ass >= len(c2_workers)*(c2TasksLimit.Assigned + c2TasksLimit.Request) {
 		return fmt.Errorf("c2 workers are busy")
 	}
 
@@ -213,7 +219,8 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 		}
 
 		// 4. 检查P2任务是否有过多请求
-		if taskCount.P2TasksReq >= len(taskCount.P2Workers)*12 {
+		p2TasksLimit := TasksLimitTable[sealtasks.TTPreCommit2][proofType]
+		if taskCount.P2TasksReq >= len(taskCount.P2Workers)*p2TasksLimit.Request {
 			log.Infof("%s: p2 workers are busy", hostname)
 			continue
 		}
