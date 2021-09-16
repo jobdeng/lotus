@@ -89,7 +89,7 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 	if err != nil {
 		return err
 	}
-
+	log.Infof("Current Seal Proof: %d", proofType)
 	tasksCountOfHost := make(map[string]*TasksCountOfHost)
 	ap_workers := make(map[uuid.UUID]storiface.WorkerStats)
 	p1_workers := make(map[uuid.UUID]storiface.WorkerStats)
