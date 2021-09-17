@@ -37,7 +37,8 @@ func (s *addPieceSelector) Ok(ctx context.Context, task sealtasks.TaskType, spt 
 
 	if ok && len(targetHostname) > 0 {
 		if hostname != targetHostname {
-			return false, xerrors.Errorf("new sector expect hostname: %s, not equal: %s", targetHostname, hostname)
+			return false, nil
+			//return false, xerrors.Errorf("new sector expect hostname: %s, not equal: %s", targetHostname, hostname)
 		}
 	}
 

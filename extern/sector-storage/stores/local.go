@@ -632,7 +632,7 @@ func (st *Local) MoveStorage(ctx context.Context, s storage.SectorRef, types sto
 	if err != nil {
 		return xerrors.Errorf("acquire dest storage: %w", err)
 	}
-	//TODO: 由seal-worker的主机复制到存储机，避免miner下载后再复制到存储机
+
 	src, srcIds, err := st.AcquireSector(ctx, s, types, storiface.FTNone, storiface.PathStorage, storiface.AcquireMove)
 	if err != nil {
 		return xerrors.Errorf("acquire src storage: %w", err)

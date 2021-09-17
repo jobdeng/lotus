@@ -3,16 +3,15 @@ package sectorstorage
 import (
 	"context"
 	"errors"
-	"io"
-	"net/http"
-	"sync"
-
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-multierror"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/mitchellh/go-homedir"
 	"golang.org/x/xerrors"
+	"io"
+	"net/http"
+	"sync"
 
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-statestore"
@@ -80,6 +79,8 @@ type Manager struct {
 
 	results map[WorkID]result
 	waitRes map[WorkID]chan struct{}
+
+	movingStorage chan struct{}
 }
 
 type result struct {
@@ -144,6 +145,7 @@ func New(ctx context.Context, lstor *stores.Local, stor *stores.Remote, ls store
 		callRes:    map[storiface.CallID]chan result{},
 		results:    map[WorkID]result{},
 		waitRes:    map[WorkID]chan struct{}{},
+		movingStorage: make(chan struct{}, 1),
 	}
 
 	m.setupWorkTracker()
@@ -565,6 +567,10 @@ func (m *Manager) FinalizeSector(ctx context.Context, sector storage.SectorRef, 
 			moveUnsealed = storiface.FTNone
 		}
 	}
+
+	//阻塞，miner要保证每个storage当前只有一个move任务，避免塞爆存储机的带宽
+	m.movingStorage <- struct{}{}
+
 	//不通过fetch方式，直接在sealing的主机上复制sealed文件到存储机
 	err = m.sched.Schedule(ctx, sector, sealtasks.TTFetch, fetchSel,
 		schedNop,
@@ -573,6 +579,8 @@ func (m *Manager) FinalizeSector(ctx context.Context, sector storage.SectorRef, 
 			_, err := m.waitSimpleCall(ctx)(w.MoveStorage(ctx, sector, storiface.FTCache|storiface.FTSealed|moveUnsealed))
 			return err
 		})
+	log.Infof("worker move storage finished, release lock!")
+	<-m.movingStorage	//释放
 	if err != nil {
 		return xerrors.Errorf("moving sector to storage: %w", err)
 	}
