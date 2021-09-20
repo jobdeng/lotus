@@ -20,7 +20,7 @@ var AutoSectorsPledgeInterval = 5 * time.Minute
 
 type TasksLimit struct {
 	Assigned int
-	Request int
+	Request  int
 }
 
 type AutoSectorsPledge struct {
@@ -200,11 +200,12 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 	}
 	// 1.b 检查C2-worker是否有过多请求
 	c2TasksLimit := TasksLimitTable[sealtasks.TTCommit2][proofType]
-	if totalC2Reqs + totalC2Ass >= len(c2_workers)*(c2TasksLimit.Assigned + c2TasksLimit.Request) {
-		return fmt.Errorf("c2 workers are busy, total assigned tasks and requests: %d, limit: %+v", totalC2Reqs + totalC2Ass, c2TasksLimit)
+	if totalC2Reqs+totalC2Ass >= len(c2_workers)*(c2TasksLimit.Assigned+c2TasksLimit.Request) {
+		return fmt.Errorf("c2 workers are busy, total assigned tasks and requests: %d, limit: %+v", totalC2Reqs+totalC2Ass, c2TasksLimit)
 	}
 
 	needRes := sectorstorage.ResourceTable[sealtasks.TTPreCommit1][proofType]
+loopHost:
 	for hostname, taskCount := range tasksCountOfHost {
 		// 2. 检查是否有空闲的AP-worker。
 		if taskCount.APTasksAss >= len(taskCount.APWorkers) {
@@ -229,16 +230,17 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 			st := p1_workers[wid]
 			doPledge = sectorstorage.WorkerCanHandleRequest(needRes, sectorstorage.WorkerID(wid), "executeSectorsPledge", st)
 			if doPledge {
-				_, err := sealing.PledgeSector(ctx, st.Info.Hostname)
+				sec, err := sealing.PledgeSector(ctx, st.Info.Hostname)
 				if err != nil {
 					return err
 				}
-				return nil
+				log.Infof("wokrer: %s starting pledge sector: %d", st.Info.Hostname, sec.ID.Number)
+				continue loopHost
 			}
 		}
 	}
 
-	return fmt.Errorf("no workers can pledge sectors now")
+	return nil
 }
 
 // host主机的任务统计数
