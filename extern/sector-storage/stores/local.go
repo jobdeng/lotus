@@ -416,7 +416,7 @@ func (st *Local) Reserve(ctx context.Context, sid storage.SectorRef, ft storifac
 	return done, nil
 }
 
-func (st *Local) AcquireSector(ctx context.Context, sid storage.SectorRef, existing storiface.SectorFileType, allocate storiface.SectorFileType, pathType storiface.PathType, op storiface.AcquireMode) (storiface.SectorPaths, storiface.SectorPaths, error) {
+func (st *Local) acquireSector(ctx context.Context, sid storage.SectorRef, existing storiface.SectorFileType, allocate storiface.SectorFileType, pathType storiface.PathType, op storiface.AcquireMode) (storiface.SectorPaths, storiface.SectorPaths, error) {
 	if existing|allocate != existing^allocate {
 		return storiface.SectorPaths{}, storiface.SectorPaths{}, xerrors.New("can't both find and allocate a sector")
 	}
@@ -510,6 +510,62 @@ func (st *Local) AcquireSector(ctx context.Context, sid storage.SectorRef, exist
 	}
 
 	return out, storageIDs, nil
+}
+
+func (st *Local) AcquireSector(ctx context.Context, sid storage.SectorRef, existing storiface.SectorFileType, allocate storiface.SectorFileType, pathType storiface.PathType, op storiface.AcquireMode) (storiface.SectorPaths, storiface.SectorPaths, error) {
+	if allocate != storiface.FTNone || pathType != storiface.PathStorage {
+		return st.acquireSector(ctx, sid, existing, allocate, pathType, op)
+	}
+
+	checkDeclareSector := func(id ID, p *path, sid abi.SectorID, fileType storiface.SectorFileType) {
+		spath := p.sectorPath(sid, fileType)
+		if fileType == storiface.FTCache {
+			spath = filepath.Join(spath, "p_aux")
+		}
+		_, err := os.Stat(spath)
+		if err != nil {
+			return
+		}
+		err = st.index.StorageDeclareSector(ctx, id, sid, fileType, true)
+		log.Infof("checkDeclareSector %s, %s, %s, %v", id, sid, fileType, err)
+	}
+
+	checkUnsealed := existing&storiface.FTUnsealed != 0
+	checkSealed := existing&storiface.FTSealed != 0
+	checkCache := existing&storiface.FTCache != 0
+
+	out, storageIDs, err := st.acquireSector(ctx, sid, existing, allocate, pathType, op)
+	if err != nil {
+		return out, storageIDs, err
+	}
+	if !((checkUnsealed && out.Unsealed == "") ||
+		(checkSealed && out.Sealed == "") ||
+		(checkCache && out.Cache == "")) {
+		return out, storageIDs, err
+	}
+
+	for id, p := range st.paths {
+		if p.local == "" {
+			continue
+		}
+
+		si, err := st.index.StorageInfo(ctx, id)
+		if err != nil || !si.CanStore {
+			continue
+		}
+
+		if checkUnsealed && out.Unsealed == "" {
+			checkDeclareSector(id, p, sid.ID, storiface.FTUnsealed)
+		}
+		if checkSealed && out.Sealed == "" {
+			checkDeclareSector(id, p, sid.ID, storiface.FTSealed)
+		}
+		if checkCache && out.Cache == "" {
+			checkDeclareSector(id, p, sid.ID, storiface.FTCache)
+		}
+	}
+
+	return st.acquireSector(ctx, sid, existing, allocate, pathType, op)
 }
 
 func (st *Local) Local(ctx context.Context) ([]StoragePath, error) {
