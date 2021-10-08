@@ -205,7 +205,7 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 	}
 
 	needRes := sectorstorage.ResourceTable[sealtasks.TTPreCommit1][proofType]
-//loopHost:
+loopHost:
 	for hostname, taskCount := range tasksCountOfHost {
 		// 2. 检查是否有空闲的AP-worker。
 		if taskCount.APTasksAss >= len(taskCount.APWorkers) {
@@ -230,13 +230,13 @@ func (asp *AutoSectorsPledge) executeSectorsPledge() error {
 			st := p1_workers[wid]
 			doPledge = sectorstorage.WorkerCanHandleRequest(needRes, sectorstorage.WorkerID(wid), "executeSectorsPledge", st)
 			if doPledge {
-				_, err := sealing.PledgeSector(ctx, st.Info.Hostname)
+				sec, err := sealing.PledgeSector(ctx, st.Info.Hostname)
 				if err != nil {
 					return err
 				}
-				return nil
-				//log.Infof("wokrer: %s starting pledge sector: %d", st.Info.Hostname, sec.ID.Number)
-				//continue loopHost
+				log.Infof("wokrer: %s starting pledge sector: %d", st.Info.Hostname, sec.ID.Number)
+				time.Sleep(10 * time.Second)
+				continue loopHost
 			}
 		}
 	}
