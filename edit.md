@@ -8,7 +8,7 @@ lotus优化分支为：https://github.com/zhiquan911/lotus/tree/mzqdev-1.11
 
 - auto包：负责自动质押扇区的功能。检查当前worker机资源使用情况，触发worker机质押新扇区。
 - extern/sector-storage/select_add_piece.go：为了保证miner质押新扇区指定的host机发能收到AP任务。
-- extern/sector-storage/select_alloc_existing.go：为了worker机上有sector的数据才处理P1和Fin任务，避免数据跨机移动，节省时间。
+- extern/sector-storage/select_alloc_existing.go：为了worker机上有sector的数据才处理PC1和Fin任务，避免数据跨机移动，节省时间。
 - extern/sector-storage/select_fix.go：为了worker机上有sector的数据才处理PC2任务，并且当前接受一个PC2任务处理，避免数据跨机移动，避免GPU并发多任务处理时偶尔死锁，节省时间。
 - extern/sector-storage/sched.go：不进行多线程分派任务，避免把大量任务压死一台worker机，新增获取调度信息的公共方法。
 - extern/sector-storage/sched_resources.go：新增检查worker是否可以处理任务请求的方法，用于自动质押扇区可以访问。
@@ -32,4 +32,4 @@ lotus优化分支为：https://github.com/zhiquan911/lotus/tree/mzqdev-1.11
 
 ### 如何查看`BUS_ID`
 
-在主机执行：nvidia-smi，表格第二列Bus-Id，每行GPU信息的00000000:1C:00.0值中`:`间隔的第二只，`1C`就是BUS_ID。
+在主机执行：nvidia-smi，表格第二列Bus-Id，每行GPU信息的00000000:1C:00.0值中`:`间隔的第二值，`1C`就是BUS_ID。
