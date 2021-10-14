@@ -113,7 +113,7 @@ var AuthApiInfoToken = &cli.Command{
 
 		ti, ok := cctx.App.Metadata["repoType"]
 		if !ok {
-			log.Errorf("unknown repo type, are you sure you want to use GetAPI?")
+			log.Errorf("unknown repo type, are you sure you want to use GetCommonAPI?")
 			ti = repo.FullNode
 		}
 		t, ok := ti.(repo.RepoType)
@@ -123,12 +123,13 @@ var AuthApiInfoToken = &cli.Command{
 
 		ainfo, err := GetAPIInfo(cctx, t)
 		if err != nil {
-			return xerrors.Errorf("could not get API info: %w", err)
+			return xerrors.Errorf("could not get API info for %s: %w", t, err)
 		}
 
 		// TODO: Log in audit log when it is implemented
 
-		fmt.Printf("%s=%s:%s\n", cliutil.EnvForRepo(t), string(token), ainfo.Addr)
+		currentEnv, _, _ := cliutil.EnvsForAPIInfos(t)
+		fmt.Printf("%s=%s:%s\n", currentEnv, string(token), ainfo.Addr)
 		return nil
 	},
 }

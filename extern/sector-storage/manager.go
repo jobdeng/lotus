@@ -28,8 +28,6 @@ var log = logging.Logger("advmgr")
 
 var ErrNoWorkers = errors.New("no suitable workers found")
 
-type URLs []string
-
 type Worker interface {
 	storiface.WorkerCalls
 
@@ -589,7 +587,6 @@ func (m *Manager) FinalizeSector(ctx context.Context, sector storage.SectorRef, 
 }
 
 func (m *Manager) ReleaseUnsealed(ctx context.Context, sector storage.SectorRef, safeToFree []storage.Range) error {
-	log.Warnw("ReleaseUnsealed todo")
 	return nil
 }
 

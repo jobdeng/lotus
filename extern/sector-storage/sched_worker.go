@@ -5,6 +5,7 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"time"
 
+	"github.com/filecoin-project/lotus/extern/sector-storage/sealtasks"
 	"golang.org/x/xerrors"
 
 	"github.com/filecoin-project/lotus/extern/sector-storage/stores"
@@ -341,6 +342,11 @@ func (sw *schedWorker) workerCompactWindows() {
 }
 
 func (sw *schedWorker) processAssignedWindows() {
+	sw.assignReadyWork()
+	sw.assignPreparingWork()
+}
+
+func (sw *schedWorker) assignPreparingWork() {
 	worker := sw.worker
 
 assignLoop:
@@ -369,7 +375,9 @@ assignLoop:
 			todo := firstWindow.todo[tidx]
 
 			log.Debugf("assign worker sector %d", todo.sector.ID.Number)
-			err := sw.startProcessingTask(sw.taskDone, todo)	//worker处理任务
+
+			//err := sw.startProcessingTask(sw.taskDone, todo)	//worker处理任务
+			err := sw.startProcessingTask(todo)
 
 			if err != nil {
 				log.Errorf("startProcessingTask error: %+v", err)
@@ -390,7 +398,67 @@ assignLoop:
 	}
 }
 
-func (sw *schedWorker) startProcessingTask(taskDone chan struct{}, req *workerRequest) error {
+func (sw *schedWorker) assignReadyWork() {
+	worker := sw.worker
+
+	worker.lk.Lock()
+	defer worker.lk.Unlock()
+
+	if worker.active.hasWorkWaiting() {
+		// prepared tasks have priority
+		return
+	}
+
+assignLoop:
+	// process windows in order
+	for len(worker.activeWindows) > 0 {
+		firstWindow := worker.activeWindows[0]
+
+		// process tasks within a window, preferring tasks at lower indexes
+		for len(firstWindow.todo) > 0 {
+			tidx := -1
+
+			for t, todo := range firstWindow.todo {
+				if todo.taskType != sealtasks.TTCommit1 && todo.taskType != sealtasks.TTCommit2 { // todo put in task
+					continue
+				}
+
+				needRes := ResourceTable[todo.taskType][todo.sector.ProofType]
+				if worker.active.canHandleRequest(needRes, sw.wid, "startPreparing", worker.info) {
+					tidx = t
+					break
+				}
+			}
+
+			if tidx == -1 {
+				break assignLoop
+			}
+
+			todo := firstWindow.todo[tidx]
+
+			log.Debugf("assign worker sector %d (ready)", todo.sector.ID.Number)
+			err := sw.startProcessingReadyTask(todo)
+
+			if err != nil {
+				log.Errorf("startProcessingTask error: %+v", err)
+				go todo.respond(xerrors.Errorf("startProcessingTask error: %w", err))
+			}
+
+			// Note: we're not freeing window.allocated resources here very much on purpose
+			copy(firstWindow.todo[tidx:], firstWindow.todo[tidx+1:])
+			firstWindow.todo[len(firstWindow.todo)-1] = nil
+			firstWindow.todo = firstWindow.todo[:len(firstWindow.todo)-1]
+		}
+
+		copy(worker.activeWindows, worker.activeWindows[1:])
+		worker.activeWindows[len(worker.activeWindows)-1] = nil
+		worker.activeWindows = worker.activeWindows[:len(worker.activeWindows)-1]
+
+		sw.windowsRequested--
+	}
+}
+
+func (sw *schedWorker) startProcessingTask(req *workerRequest) error {
 	w, sh := sw.worker, sw.sched
 
 	needRes := ResourceTable[req.taskType][req.sector.ProofType]
@@ -402,18 +470,17 @@ func (sw *schedWorker) startProcessingTask(taskDone chan struct{}, req *workerRe
 	go func() {	//执行异步线程，不阻塞主线程
 		// first run the prepare step (e.g. fetching sector data from other worker)
 		err := req.prepare(req.ctx, sh.workTracker.worker(sw.wid, w.info, w.workerRpc))
-		sh.workersLk.Lock()
+		w.lk.Lock()
 
 		if err != nil {
-			w.lk.Lock()
 			w.preparing.free(w.info.Resources, needRes)
 			w.lk.Unlock()
-			sh.workersLk.Unlock()
 
 			select {
-			case taskDone <- struct{}{}:
+			case sw.taskDone <- struct{}{}:
 			case <-sh.closing:
 				log.Warnf("scheduler closed while sending response (prepare error: %+v)", err)
+			default: // there is a notification pending already
 			}
 
 			select {
@@ -427,12 +494,10 @@ func (sw *schedWorker) startProcessingTask(taskDone chan struct{}, req *workerRe
 		}
 
 		// wait (if needed) for resources in the 'active' window
-		err = w.active.withResources(sw.wid, w.info, needRes, &sh.workersLk, func() error {
-			w.lk.Lock()
+		err = w.active.withResources(sw.wid, w.info, needRes, &w.lk, func() error {
 			w.preparing.free(w.info.Resources, needRes)
 			w.lk.Unlock()
-			sh.workersLk.Unlock()
-			defer sh.workersLk.Lock() // we MUST return locked from this function
+			defer w.lk.Lock() // we MUST return locked from this function
 
 			w.lk.Lock()
 			// 纪录work进行中的任务
@@ -443,8 +508,9 @@ func (sw *schedWorker) startProcessingTask(taskDone chan struct{}, req *workerRe
 			w.lk.Unlock()
 
 			select {
-			case taskDone <- struct{}{}:
+			case sw.taskDone <- struct{}{}:
 			case <-sh.closing:
+			default: // there is a notification pending already
 			}
 
 			// Do the work!
@@ -471,11 +537,52 @@ func (sw *schedWorker) startProcessingTask(taskDone chan struct{}, req *workerRe
 			return nil
 		})
 
-		sh.workersLk.Unlock()
+		w.lk.Unlock()
 
 		// This error should always be nil, since nothing is setting it, but just to be safe:
 		if err != nil {
 			log.Errorf("error executing worker (withResources): %+v", err)
+		}
+	}()
+
+	return nil
+}
+
+func (sw *schedWorker) startProcessingReadyTask(req *workerRequest) error {
+	w, sh := sw.worker, sw.sched
+
+	needRes := ResourceTable[req.taskType][req.sector.ProofType]
+
+	w.active.add(w.info.Resources, needRes)
+
+	go func() {
+		// Do the work!
+		err := req.work(req.ctx, sh.workTracker.worker(sw.wid, w.info, w.workerRpc))
+
+		select {
+		case req.ret <- workerResponse{err: err}:
+		case <-req.ctx.Done():
+			log.Warnf("request got cancelled before we could respond")
+		case <-sh.closing:
+			log.Warnf("scheduler closed while sending response")
+		}
+
+		w.lk.Lock()
+
+		w.active.free(w.info.Resources, needRes)
+
+		select {
+		case sw.taskDone <- struct{}{}:
+		case <-sh.closing:
+			log.Warnf("scheduler closed while sending response (prepare error: %+v)", err)
+		default: // there is a notification pending already
+		}
+
+		w.lk.Unlock()
+
+		// This error should always be nil, since nothing is setting it, but just to be safe:
+		if err != nil {
+			log.Errorf("error executing worker (ready): %+v", err)
 		}
 	}()
 

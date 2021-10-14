@@ -12,6 +12,7 @@ import (
 	"github.com/filecoin-project/lotus/api"
 	"github.com/filecoin-project/lotus/build"
 	lcli "github.com/filecoin-project/lotus/cli"
+	cliutil "github.com/filecoin-project/lotus/cli/util"
 	"github.com/filecoin-project/lotus/lib/lotuslog"
 	"github.com/filecoin-project/lotus/lib/tracing"
 	"github.com/filecoin-project/lotus/node/repo"
@@ -29,6 +30,7 @@ func main() {
 	local := []*cli.Command{
 		DaemonCmd,
 		backupCmd,
+		configCmd,
 	}
 	if AdvanceBlockCmd != nil {
 		local = append(local, AdvanceBlockCmd)
@@ -66,6 +68,12 @@ func main() {
 		EnableBashCompletion: true,
 		Flags: []cli.Flag{
 			&cli.StringFlag{
+				Name:    "panic-reports",
+				EnvVars: []string{"LOTUS_PANIC_REPORT_PATH"},
+				Hidden:  true,
+				Value:   "~/.lotus", // should follow --repo default
+			},
+			&cli.StringFlag{
 				Name:    "repo",
 				EnvVars: []string{"LOTUS_PATH"},
 				Hidden:  true,
@@ -80,6 +88,15 @@ func main() {
 				Name:  "force-send",
 				Usage: "if true, will ignore pre-send checks",
 			},
+			cliutil.FlagVeryVerbose,
+		},
+		After: func(c *cli.Context) error {
+			if r := recover(); r != nil {
+				// Generate report in LOTUS_PATH and re-raise panic
+				build.GeneratePanicReport(c.String("panic-reports"), c.String("repo"), c.App.Name)
+				panic(r)
+			}
+			return nil
 		},
 
 		Commands: append(local, lcli.Commands...),

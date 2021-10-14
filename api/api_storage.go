@@ -13,12 +13,13 @@ import (
 
 	"github.com/filecoin-project/go-address"
 	datatransfer "github.com/filecoin-project/go-data-transfer"
-	"github.com/filecoin-project/go-fil-markets/piecestore"
-	"github.com/filecoin-project/go-fil-markets/retrievalmarket"
-	"github.com/filecoin-project/go-fil-markets/storagemarket"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/specs-actors/v2/actors/builtin/market"
 	"github.com/filecoin-project/specs-storage/storage"
+
+	"github.com/filecoin-project/go-fil-markets/piecestore"
+	"github.com/filecoin-project/go-fil-markets/retrievalmarket"
+	"github.com/filecoin-project/go-fil-markets/storagemarket"
 
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/extern/sector-storage/fsutil"
@@ -41,6 +42,7 @@ import (
 // StorageMiner is a low-level interface to the Filecoin network storage miner node
 type StorageMiner interface {
 	Common
+	Net
 
 	ActorAddress(context.Context) (address.Address, error) //perm:read
 
@@ -54,6 +56,13 @@ type StorageMiner interface {
 
 	// Get the status of a given sector by ID
 	SectorsStatus(ctx context.Context, sid abi.SectorNumber, showOnChainInfo bool) (SectorInfo, error) //perm:read
+
+	// Add piece to an open sector. If no sectors with enough space are open,
+	// either a new sector will be created, or this call will block until more
+	// sectors can be created.
+	SectorAddPieceToAny(ctx context.Context, size abi.UnpaddedPieceSize, r storage.Data, d PieceDealInfo) (SectorOffset, error) //perm:admin
+
+	SectorsUnsealPiece(ctx context.Context, sector storage.SectorRef, offset storiface.UnpaddedByteIndex, size abi.UnpaddedPieceSize, randomness abi.SealRandomness, commd *cid.Cid) error //perm:admin
 
 	// List all staged sectors
 	SectorsList(context.Context) ([]abi.SectorNumber, error) //perm:read
@@ -135,8 +144,8 @@ type StorageMiner interface {
 	StorageBestAlloc(ctx context.Context, allocate storiface.SectorFileType, ssize abi.SectorSize, pathType storiface.PathType) ([]stores.StorageInfo, error)           //perm:admin
 	StorageLock(ctx context.Context, sector abi.SectorID, read storiface.SectorFileType, write storiface.SectorFileType) error                                          //perm:admin
 	StorageTryLock(ctx context.Context, sector abi.SectorID, read storiface.SectorFileType, write storiface.SectorFileType) (bool, error)                               //perm:admin
+	StorageList(ctx context.Context) (map[stores.ID][]stores.Decl, error)                                                                                               //perm:admin
 
-	StorageList(ctx context.Context) (map[stores.ID][]stores.Decl, error) //perm:admin
 	StorageLocal(ctx context.Context) (map[stores.ID]string, error)       //perm:admin
 	StorageStat(ctx context.Context, id stores.ID) (fsutil.FsStat, error) //perm:admin
 
@@ -157,6 +166,53 @@ type StorageMiner interface {
 	MarketCancelDataTransfer(ctx context.Context, transferID datatransfer.TransferID, otherPeer peer.ID, isInitiator bool) error //perm:write
 	MarketPendingDeals(ctx context.Context) (PendingDealInfo, error)                                                             //perm:write
 	MarketPublishPendingDeals(ctx context.Context) error                                                                         //perm:admin
+	MarketRetryPublishDeal(ctx context.Context, propcid cid.Cid) error                                                           //perm:admin
+
+	// DagstoreListShards returns information about all shards known to the
+	// DAG store. Only available on nodes running the markets subsystem.
+	DagstoreListShards(ctx context.Context) ([]DagstoreShardInfo, error) //perm:read
+
+	// DagstoreInitializeShard initializes an uninitialized shard.
+	//
+	// Initialization consists of fetching the shard's data (deal payload) from
+	// the storage subsystem, generating an index, and persisting the index
+	// to facilitate later retrievals, and/or to publish to external sources.
+	//
+	// This operation is intended to complement the initial migration. The
+	// migration registers a shard for every unique piece CID, with lazy
+	// initialization. Thus, shards are not initialized immediately to avoid
+	// IO activity competing with proving. Instead, shard are initialized
+	// when first accessed. This method forces the initialization of a shard by
+	// accessing it and immediately releasing it. This is useful to warm up the
+	// cache to facilitate subsequent retrievals, and to generate the indexes
+	// to publish them externally.
+	//
+	// This operation fails if the shard is not in ShardStateNew state.
+	// It blocks until initialization finishes.
+	DagstoreInitializeShard(ctx context.Context, key string) error //perm:write
+
+	// DagstoreRecoverShard attempts to recover a failed shard.
+	//
+	// This operation fails if the shard is not in ShardStateErrored state.
+	// It blocks until recovery finishes. If recovery failed, it returns the
+	// error.
+	DagstoreRecoverShard(ctx context.Context, key string) error //perm:write
+
+	// DagstoreInitializeAll initializes all uninitialized shards in bulk,
+	// according to the policy passed in the parameters.
+	//
+	// It is recommended to set a maximum concurrency to avoid extreme
+	// IO pressure if the storage subsystem has a large amount of deals.
+	//
+	// It returns a stream of events to report progress.
+	DagstoreInitializeAll(ctx context.Context, params DagstoreInitializeAllParams) (<-chan DagstoreInitializeAllEvent, error) //perm:write
+
+	// DagstoreGC runs garbage collection on the DAG store.
+	DagstoreGC(ctx context.Context) ([]DagstoreShardResult, error) //perm:admin
+
+	// RuntimeSubsystems returns the subsystems that are enabled
+	// in this instance.
+	RuntimeSubsystems(ctx context.Context) (MinerSubsystems, error) //perm:read
 
 	DealsImportData(ctx context.Context, dealPropCid cid.Cid, file string) error //perm:admin
 	DealsList(ctx context.Context) ([]MarketDeal, error)                         //perm:admin
@@ -212,6 +268,11 @@ type SectorLog struct {
 	Message string
 }
 
+type SectorPiece struct {
+	Piece    abi.PieceInfo
+	DealInfo *PieceDealInfo // nil for pieces which do not appear in deals (e.g. filler pieces)
+}
+
 type SectorInfo struct {
 	SectorID     abi.SectorNumber
 	State        SectorState
@@ -219,6 +280,7 @@ type SectorInfo struct {
 	CommR        *cid.Cid
 	Proof        []byte
 	Deals        []abi.DealID
+	Pieces       []SectorPiece
 	Ticket       SealTicket
 	Seed         SealSeed
 	PreCommitMsg *cid.Cid
@@ -282,15 +344,17 @@ type AddrUse int
 const (
 	PreCommitAddr AddrUse = iota
 	CommitAddr
+	DealPublishAddr
 	PoStAddr
 
 	TerminateSectorsAddr
 )
 
 type AddressConfig struct {
-	PreCommitControl []address.Address
-	CommitControl    []address.Address
-	TerminateControl []address.Address
+	PreCommitControl   []address.Address
+	CommitControl      []address.Address
+	TerminateControl   []address.Address
+	DealPublishControl []address.Address
 
 	DisableOwnerFallback  bool
 	DisableWorkerFallback bool
@@ -302,4 +366,57 @@ type PendingDealInfo struct {
 	Deals              []market.ClientDealProposal
 	PublishPeriodStart time.Time
 	PublishPeriod      time.Duration
+}
+
+type SectorOffset struct {
+	Sector abi.SectorNumber
+	Offset abi.PaddedPieceSize
+}
+
+// DealInfo is a tuple of deal identity and its schedule
+type PieceDealInfo struct {
+	PublishCid   *cid.Cid
+	DealID       abi.DealID
+	DealProposal *market.DealProposal
+	DealSchedule DealSchedule
+	KeepUnsealed bool
+}
+
+// DealSchedule communicates the time interval of a storage deal. The deal must
+// appear in a sealed (proven) sector no later than StartEpoch, otherwise it
+// is invalid.
+type DealSchedule struct {
+	StartEpoch abi.ChainEpoch
+	EndEpoch   abi.ChainEpoch
+}
+
+// DagstoreShardInfo is the serialized form of dagstore.DagstoreShardInfo that
+// we expose through JSON-RPC to avoid clients having to depend on the
+// dagstore lib.
+type DagstoreShardInfo struct {
+	Key   string
+	State string
+	Error string
+}
+
+// DagstoreShardResult enumerates results per shard.
+type DagstoreShardResult struct {
+	Key     string
+	Success bool
+	Error   string
+}
+
+type DagstoreInitializeAllParams struct {
+	MaxConcurrency int
+	IncludeSealed  bool
+}
+
+// DagstoreInitializeAllEvent represents an initialization event.
+type DagstoreInitializeAllEvent struct {
+	Key     string
+	Event   string // "start", "end"
+	Success bool
+	Error   string
+	Total   int
+	Current int
 }

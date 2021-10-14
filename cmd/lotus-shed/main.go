@@ -60,6 +60,9 @@ func main() {
 		actorCmd,
 		minerTypesCmd,
 		minerMultisigsCmd,
+		splitstoreCmd,
+		fr32Cmd,
+		chainCmd,
 	}
 
 	app := &cli.App{

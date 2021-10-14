@@ -78,13 +78,13 @@ type workerHandle struct {
 
 	info storiface.WorkerInfo
 
-	preparing *activeResources
-	active    *activeResources
+	preparing *activeResources // use with workerHandle.lk
+	active    *activeResources // use with workerHandle.lk
 
-	lk sync.Mutex
+	lk sync.Mutex // can be taken inside sched.workersLk.RLock
 
-	wndLk         sync.Mutex
-	activeWindows []*schedWindow	//调度窗口，用于接收任务
+	wndLk         sync.Mutex // can be taken inside sched.workersLk.RLock
+	activeWindows []*schedWindow
 
 	enabled bool
 
@@ -119,7 +119,8 @@ type activeResources struct {
 	gpuUsed    bool
 	cpuUse     uint64
 
-	cond *sync.Cond
+	cond    *sync.Cond
+	waiting int
 }
 
 type workerRequest struct {

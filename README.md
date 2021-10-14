@@ -18,6 +18,8 @@ Lotus is an implementation of the Filecoin Distributed Storage Network. For more
 
 ## Building & Documentation
 
+> Note: The default `master` branch is the dev branch, please use with caution. For the latest stable version, checkout the most recent [`Latest release`](https://github.com/filecoin-project/lotus/releases).
+ 
 For complete instructions on how to build, install and setup lotus, please visit [https://docs.filecoin.io/get-started/lotus](https://docs.filecoin.io/get-started/lotus/). Basic build instructions can be found further down in this readme.
 
 ## Reporting a Vulnerability
@@ -121,7 +123,6 @@ Note: The default branch `master` is the dev branch where the latest new feature
 
    # Or to join a testnet or devnet:
    make clean calibnet # Calibration with min 32GiB sectors
-   make clean nerpanet # Nerpa with min 512MiB sectors
 
    sudo make install
    ```

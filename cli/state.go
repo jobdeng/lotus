@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/filecoin-project/go-state-types/big"
+	"github.com/filecoin-project/lotus/chain/consensus/filcns"
 
 	"github.com/filecoin-project/lotus/api/v0api"
 
@@ -446,6 +447,9 @@ var StateExecTraceCmd = &cli.Command{
 		if err != nil {
 			return err
 		}
+		if lookup == nil {
+			return fmt.Errorf("failed to find message: %s", mcid)
+		}
 
 		ts, err := capi.ChainGetTipSet(ctx, lookup.TipSet)
 		if err != nil {
@@ -695,7 +699,7 @@ var StateListActorsCmd = &cli.Command{
 var StateGetActorCmd = &cli.Command{
 	Name:      "get-actor",
 	Usage:     "Print actor information",
-	ArgsUsage: "[actorrAddress]",
+	ArgsUsage: "[actorAddress]",
 	Action: func(cctx *cli.Context) error {
 		api, closer, err := GetFullNodeAPI(cctx)
 		if err != nil {
@@ -1363,7 +1367,7 @@ func codeStr(c cid.Cid) string {
 }
 
 func getMethod(code cid.Cid, method abi.MethodNum) string {
-	return stmgr.MethodsMap[code][method].Name
+	return filcns.NewActorRegistry().Methods[code][method].Name // todo: use remote
 }
 
 func toFil(f types.BigInt) types.FIL {
@@ -1394,7 +1398,7 @@ func sumGas(changes []*types.GasTrace) types.GasTrace {
 }
 
 func JsonParams(code cid.Cid, method abi.MethodNum, params []byte) (string, error) {
-	p, err := stmgr.GetParamType(code, method)
+	p, err := stmgr.GetParamType(filcns.NewActorRegistry(), code, method) // todo use api for correct actor registry
 	if err != nil {
 		return "", err
 	}
@@ -1408,7 +1412,7 @@ func JsonParams(code cid.Cid, method abi.MethodNum, params []byte) (string, erro
 }
 
 func jsonReturn(code cid.Cid, method abi.MethodNum, ret []byte) (string, error) {
-	methodMeta, found := stmgr.MethodsMap[code][method]
+	methodMeta, found := filcns.NewActorRegistry().Methods[code][method] // TODO: use remote
 	if !found {
 		return "", fmt.Errorf("method %d not found on actor %s", method, code)
 	}
@@ -1489,6 +1493,10 @@ var StateSearchMsgCmd = &cli.Command{
 		mw, err := api.StateSearchMsg(ctx, msg)
 		if err != nil {
 			return err
+		}
+
+		if mw == nil {
+			return fmt.Errorf("failed to find message: %s", msg)
 		}
 
 		m, err := api.ChainGetMessage(ctx, msg)

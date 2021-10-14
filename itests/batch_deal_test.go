@@ -18,6 +18,7 @@ import (
 )
 
 func TestBatchDealInput(t *testing.T) {
+	t.Skip("this test is disabled as it's flaky: #4611")
 	kit.QuietMiningLogs()
 
 	var (
@@ -58,7 +59,7 @@ func TestBatchDealInput(t *testing.T) {
 			))
 			client, miner, ens := kit.EnsembleMinimal(t, kit.MockProofs(), opts)
 			ens.InterconnectAll().BeginMining(blockTime)
-			dh := kit.NewDealHarness(t, client, miner)
+			dh := kit.NewDealHarness(t, client, miner, miner)
 
 			err := miner.MarketSetAsk(ctx, big.Zero(), big.Zero(), 200, 128, 32<<30)
 			require.NoError(t, err)
@@ -90,7 +91,11 @@ func TestBatchDealInput(t *testing.T) {
 				res, _, _, err := kit.CreateImportFile(ctx, client, rseed, piece)
 				require.NoError(t, err)
 
-				deal := dh.StartDeal(ctx, res.Root, false, dealStartEpoch)
+				dp := dh.DefaultStartDealParams()
+				dp.Data.Root = res.Root
+				dp.DealStartEpoch = dealStartEpoch
+
+				deal := dh.StartDeal(ctx, dp)
 				dh.WaitDealSealed(ctx, deal, false, true, checkNoPadding)
 			}
 

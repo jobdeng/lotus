@@ -15,19 +15,18 @@ import (
 	"github.com/filecoin-project/go-bitfield"
 	"github.com/google/uuid"
 	"github.com/ipfs/go-cid"
-	"github.com/ipfs/go-filestore"
-	metrics "github.com/libp2p/go-libp2p-core/metrics"
+	"github.com/libp2p/go-libp2p-core/metrics"
 	"github.com/libp2p/go-libp2p-core/network"
 	"github.com/libp2p/go-libp2p-core/peer"
-	protocol "github.com/libp2p/go-libp2p-core/protocol"
+	"github.com/libp2p/go-libp2p-core/protocol"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 	"github.com/multiformats/go-multiaddr"
 
 	datatransfer "github.com/filecoin-project/go-data-transfer"
-	filestore2 "github.com/filecoin-project/go-fil-markets/filestore"
+	filestore "github.com/filecoin-project/go-fil-markets/filestore"
 	"github.com/filecoin-project/go-fil-markets/retrievalmarket"
 	"github.com/filecoin-project/go-jsonrpc/auth"
-	"github.com/filecoin-project/go-multistore"
+	textselector "github.com/ipld/go-ipld-selector-text-lite"
 
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/crypto"
@@ -43,14 +42,16 @@ import (
 	"github.com/filecoin-project/lotus/extern/sector-storage/storiface"
 	sealing "github.com/filecoin-project/lotus/extern/storage-sealing"
 	"github.com/filecoin-project/lotus/node/modules/dtypes"
+	"github.com/filecoin-project/lotus/node/repo/imports"
 )
 
 var ExampleValues = map[reflect.Type]interface{}{
-	reflect.TypeOf(auth.Permission("")): auth.Permission("write"),
-	reflect.TypeOf(""):                  "string value",
-	reflect.TypeOf(uint64(42)):          uint64(42),
-	reflect.TypeOf(byte(7)):             byte(7),
-	reflect.TypeOf([]byte{}):            []byte("byte array"),
+	reflect.TypeOf(api.MinerSubsystem(0)): api.MinerSubsystem(1),
+	reflect.TypeOf(auth.Permission("")):   auth.Permission("write"),
+	reflect.TypeOf(""):                    "string value",
+	reflect.TypeOf(uint64(42)):            uint64(42),
+	reflect.TypeOf(byte(7)):               byte(7),
+	reflect.TypeOf([]byte{}):              []byte("byte array"),
 }
 
 func addExample(v interface{}) {
@@ -88,7 +89,8 @@ func init() {
 	addExample(pid)
 	addExample(&pid)
 
-	multistoreIDExample := multistore.StoreID(50)
+	storeIDExample := imports.ID(50)
+	textSelExample := textselector.Expression("Links/21/Hash/Links/42/Hash")
 
 	addExample(bitfield.NewFromSet([]uint64{5}))
 	addExample(abi.RegisteredSealProof_StackedDrg32GiBV1_1)
@@ -107,7 +109,6 @@ func init() {
 	addExample(abi.UnpaddedPieceSize(1024))
 	addExample(abi.UnpaddedPieceSize(1024).Padded())
 	addExample(abi.DealID(5432))
-	addExample(filestore.StatusFileChanged)
 	addExample(abi.SectorNumber(9))
 	addExample(abi.SectorSize(32 * 1024 * 1024 * 1024))
 	addExample(api.MpoolChange(0))
@@ -119,10 +120,11 @@ func init() {
 	addExample(time.Minute)
 	addExample(datatransfer.TransferID(3))
 	addExample(datatransfer.Ongoing)
-	addExample(multistoreIDExample)
-	addExample(&multistoreIDExample)
+	addExample(storeIDExample)
+	addExample(&storeIDExample)
 	addExample(retrievalmarket.ClientEventDealAccepted)
 	addExample(retrievalmarket.DealStatusNew)
+	addExample(&textSelExample)
 	addExample(network.ReachabilityPublic)
 	addExample(build.NewestNetworkVersion)
 	addExample(map[string]int{"name": 42})
@@ -174,8 +176,8 @@ func init() {
 	ExampleValues[reflect.TypeOf(struct{ A multiaddr.Multiaddr }{}).Field(0).Type] = maddr
 
 	// miner specific
-	addExample(filestore2.Path(".lotusminer/fstmp123"))
-	si := multistore.StoreID(12)
+	addExample(filestore.Path(".lotusminer/fstmp123"))
+	si := uint64(12)
 	addExample(&si)
 	addExample(retrievalmarket.DealID(5))
 	addExample(abi.ActorID(1000))
@@ -264,27 +266,44 @@ func init() {
 
 	addExample(api.CheckStatusCode(0))
 	addExample(map[string]interface{}{"abc": 123})
+	addExample(api.MinerSubsystems{
+		api.SubsystemMining,
+		api.SubsystemSealing,
+		api.SubsystemSectorStorage,
+		api.SubsystemMarkets,
+	})
+	addExample(api.DagstoreShardResult{
+		Key:   "baga6ea4seaqecmtz7iak33dsfshi627abz4i4665dfuzr3qfs4bmad6dx3iigdq",
+		Error: "<error>",
+	})
+	addExample(api.DagstoreShardInfo{
+		Key:   "baga6ea4seaqecmtz7iak33dsfshi627abz4i4665dfuzr3qfs4bmad6dx3iigdq",
+		State: "ShardStateAvailable",
+		Error: "<error>",
+	})
 }
 
-func GetAPIType(name, pkg string) (i interface{}, t, permStruct, commonPermStruct reflect.Type) {
+func GetAPIType(name, pkg string) (i interface{}, t reflect.Type, permStruct []reflect.Type) {
+
 	switch pkg {
 	case "api": // latest
 		switch name {
 		case "FullNode":
 			i = &api.FullNodeStruct{}
 			t = reflect.TypeOf(new(struct{ api.FullNode })).Elem()
-			permStruct = reflect.TypeOf(api.FullNodeStruct{}.Internal)
-			commonPermStruct = reflect.TypeOf(api.CommonStruct{}.Internal)
+			permStruct = append(permStruct, reflect.TypeOf(api.FullNodeStruct{}.Internal))
+			permStruct = append(permStruct, reflect.TypeOf(api.CommonStruct{}.Internal))
+			permStruct = append(permStruct, reflect.TypeOf(api.NetStruct{}.Internal))
 		case "StorageMiner":
 			i = &api.StorageMinerStruct{}
 			t = reflect.TypeOf(new(struct{ api.StorageMiner })).Elem()
-			permStruct = reflect.TypeOf(api.StorageMinerStruct{}.Internal)
-			commonPermStruct = reflect.TypeOf(api.CommonStruct{}.Internal)
+			permStruct = append(permStruct, reflect.TypeOf(api.StorageMinerStruct{}.Internal))
+			permStruct = append(permStruct, reflect.TypeOf(api.CommonStruct{}.Internal))
+			permStruct = append(permStruct, reflect.TypeOf(api.NetStruct{}.Internal))
 		case "Worker":
 			i = &api.WorkerStruct{}
 			t = reflect.TypeOf(new(struct{ api.Worker })).Elem()
-			permStruct = reflect.TypeOf(api.WorkerStruct{}.Internal)
-			commonPermStruct = reflect.TypeOf(api.WorkerStruct{}.Internal)
+			permStruct = append(permStruct, reflect.TypeOf(api.WorkerStruct{}.Internal))
 		default:
 			panic("unknown type")
 		}
@@ -293,8 +312,9 @@ func GetAPIType(name, pkg string) (i interface{}, t, permStruct, commonPermStruc
 		case "FullNode":
 			i = v0api.FullNodeStruct{}
 			t = reflect.TypeOf(new(struct{ v0api.FullNode })).Elem()
-			permStruct = reflect.TypeOf(v0api.FullNodeStruct{}.Internal)
-			commonPermStruct = reflect.TypeOf(v0api.CommonStruct{}.Internal)
+			permStruct = append(permStruct, reflect.TypeOf(v0api.FullNodeStruct{}.Internal))
+			permStruct = append(permStruct, reflect.TypeOf(v0api.CommonStruct{}.Internal))
+			permStruct = append(permStruct, reflect.TypeOf(v0api.NetStruct{}.Internal))
 		default:
 			panic("unknown type")
 		}

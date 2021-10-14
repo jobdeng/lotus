@@ -44,6 +44,8 @@ type SectorLocation struct {
 
 var ErrSectorAllocated = errors.New("sectorNumber is allocated, but PreCommit info wasn't found on chain")
 
+//go:generate go run github.com/golang/mock/mockgen -destination=mocks/api.go -package=mocks . SealingAPI
+
 type SealingAPI interface {
 	StateWaitMsg(context.Context, cid.Cid) (MsgLookup, error)
 	StateSearchMsg(context.Context, cid.Cid) (*MsgLookup, error)
@@ -59,6 +61,7 @@ type SealingAPI interface {
 	StateMinerPreCommitDepositForPower(context.Context, address.Address, miner.SectorPreCommitInfo, TipSetToken) (big.Int, error)
 	StateMinerInitialPledgeCollateral(context.Context, address.Address, miner.SectorPreCommitInfo, TipSetToken) (big.Int, error)
 	StateMinerInfo(context.Context, address.Address, TipSetToken) (miner.MinerInfo, error)
+	StateMinerAvailableBalance(context.Context, address.Address, TipSetToken) (big.Int, error)
 	StateMinerSectorAllocated(context.Context, address.Address, abi.SectorNumber, TipSetToken) (bool, error)
 	StateMarketStorageDeal(context.Context, abi.DealID, TipSetToken) (*api.MarketDeal, error)
 	StateMarketStorageDealProposal(context.Context, abi.DealID, TipSetToken) (market.DealProposal, error)
@@ -69,8 +72,8 @@ type SealingAPI interface {
 	ChainHead(ctx context.Context) (TipSetToken, abi.ChainEpoch, error)
 	ChainBaseFee(context.Context, TipSetToken) (abi.TokenAmount, error)
 	ChainGetMessage(ctx context.Context, mc cid.Cid) (*types.Message, error)
-	ChainGetRandomnessFromBeacon(ctx context.Context, tok TipSetToken, personalization crypto.DomainSeparationTag, randEpoch abi.ChainEpoch, entropy []byte) (abi.Randomness, error)
-	ChainGetRandomnessFromTickets(ctx context.Context, tok TipSetToken, personalization crypto.DomainSeparationTag, randEpoch abi.ChainEpoch, entropy []byte) (abi.Randomness, error)
+	StateGetRandomnessFromBeacon(ctx context.Context, personalization crypto.DomainSeparationTag, randEpoch abi.ChainEpoch, entropy []byte, tok TipSetToken) (abi.Randomness, error)
+	StateGetRandomnessFromTickets(ctx context.Context, personalization crypto.DomainSeparationTag, randEpoch abi.ChainEpoch, entropy []byte, tok TipSetToken) (abi.Randomness, error)
 	ChainReadObj(context.Context, cid.Cid) ([]byte, error)
 }
 
@@ -79,7 +82,9 @@ type SectorStateNotifee func(before, after SectorInfo)
 type AddrSel func(ctx context.Context, mi miner.MinerInfo, use api.AddrUse, goodFunds, minFunds abi.TokenAmount) (address.Address, abi.TokenAmount, error)
 
 type Sealing struct {
-	api    SealingAPI
+	Api      SealingAPI
+	DealInfo *CurrentDealInfoManager
+
 	feeCfg config.MinerFeeConfig
 	events Events
 
@@ -113,7 +118,6 @@ type Sealing struct {
 	commiter    *CommitBatcher
 
 	getConfig GetSealingConfigFunc
-	dealInfo  *CurrentDealInfoManager
 }
 
 type openSector struct {
@@ -124,7 +128,7 @@ type openSector struct {
 
 type pendingPiece struct {
 	size abi.UnpaddedPieceSize
-	deal DealInfo
+	deal api.PieceDealInfo
 
 	data storage.Data
 
@@ -134,7 +138,9 @@ type pendingPiece struct {
 
 func New(mctx context.Context, api SealingAPI, fc config.MinerFeeConfig, events Events, maddr address.Address, ds datastore.Batching, sealer sectorstorage.SectorManager, sc SectorIDCounter, verif ffiwrapper.Verifier, prov ffiwrapper.Prover, pcp PreCommitPolicy, gc GetSealingConfigFunc, notifee SectorStateNotifee, as AddrSel) *Sealing {
 	s := &Sealing{
-		api:    api,
+		Api:      api,
+		DealInfo: &CurrentDealInfoManager{api},
+
 		feeCfg: fc,
 		events: events,
 
@@ -158,7 +164,6 @@ func New(mctx context.Context, api SealingAPI, fc config.MinerFeeConfig, events 
 		commiter:    NewCommitBatcher(mctx, maddr, api, as, fc, gc, prov),
 
 		getConfig: gc,
-		dealInfo:  &CurrentDealInfoManager{api},
 
 		stats: SectorStats{
 			bySector: map[abi.SectorID]statSectorState{},
@@ -228,12 +233,12 @@ func (m *Sealing) CommitPending(ctx context.Context) ([]abi.SectorID, error) {
 }
 
 func (m *Sealing) currentSealProof(ctx context.Context) (abi.RegisteredSealProof, error) {
-	mi, err := m.api.StateMinerInfo(ctx, m.maddr, nil)
+	mi, err := m.Api.StateMinerInfo(ctx, m.maddr, nil)
 	if err != nil {
 		return 0, err
 	}
 
-	ver, err := m.api.StateNetworkVersion(ctx, nil)
+	ver, err := m.Api.StateNetworkVersion(ctx, nil)
 	if err != nil {
 		return 0, err
 	}

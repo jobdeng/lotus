@@ -152,7 +152,7 @@ func VersionForNetwork(ver network.Version) (types.StateTreeVersion, error) {
 		return types.StateTreeVersion2, nil
 	case network.Version12:
 		return types.StateTreeVersion3, nil
-	case network.Version13:
+	case network.Version13, network.Version14:
 		return types.StateTreeVersion4, nil
 	default:
 		panic(fmt.Sprintf("unsupported network version %d", ver))
@@ -273,7 +273,7 @@ func LoadStateTree(cst cbor.IpldStore, c cid.Cid) (*StateTree, error) {
 	}
 	if err != nil {
 		log.Errorf("failed to load state tree: %s", err)
-		return nil, xerrors.Errorf("failed to load state tree: %w", err)
+		return nil, xerrors.Errorf("failed to load state tree %s: %w", c, err)
 	}
 
 	s := &StateTree{
@@ -547,7 +547,7 @@ func (st *StateTree) Version() types.StateTreeVersion {
 	return st.version
 }
 
-func Diff(oldTree, newTree *StateTree) (map[string]types.Actor, error) {
+func Diff(ctx context.Context, oldTree, newTree *StateTree) (map[string]types.Actor, error) {
 	out := map[string]types.Actor{}
 
 	var (
@@ -555,33 +555,38 @@ func Diff(oldTree, newTree *StateTree) (map[string]types.Actor, error) {
 		buf          = bytes.NewReader(nil)
 	)
 	if err := newTree.root.ForEach(&ncval, func(k string) error {
-		var act types.Actor
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			var act types.Actor
 
-		addr, err := address.NewFromBytes([]byte(k))
-		if err != nil {
-			return xerrors.Errorf("address in state tree was not valid: %w", err)
+			addr, err := address.NewFromBytes([]byte(k))
+			if err != nil {
+				return xerrors.Errorf("address in state tree was not valid: %w", err)
+			}
+
+			found, err := oldTree.root.Get(abi.AddrKey(addr), &ocval)
+			if err != nil {
+				return err
+			}
+
+			if found && bytes.Equal(ocval.Raw, ncval.Raw) {
+				return nil // not changed
+			}
+
+			buf.Reset(ncval.Raw)
+			err = act.UnmarshalCBOR(buf)
+			buf.Reset(nil)
+
+			if err != nil {
+				return err
+			}
+
+			out[addr.String()] = act
+
+			return nil
 		}
-
-		found, err := oldTree.root.Get(abi.AddrKey(addr), &ocval)
-		if err != nil {
-			return err
-		}
-
-		if found && bytes.Equal(ocval.Raw, ncval.Raw) {
-			return nil // not changed
-		}
-
-		buf.Reset(ncval.Raw)
-		err = act.UnmarshalCBOR(buf)
-		buf.Reset(nil)
-
-		if err != nil {
-			return err
-		}
-
-		out[addr.String()] = act
-
-		return nil
 	}); err != nil {
 		return nil, err
 	}

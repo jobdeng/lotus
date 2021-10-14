@@ -18,6 +18,12 @@
   * [ComputeProof](#ComputeProof)
 * [Create](#Create)
   * [CreateBackup](#CreateBackup)
+* [Dagstore](#Dagstore)
+  * [DagstoreGC](#DagstoreGC)
+  * [DagstoreInitializeAll](#DagstoreInitializeAll)
+  * [DagstoreInitializeShard](#DagstoreInitializeShard)
+  * [DagstoreListShards](#DagstoreListShards)
+  * [DagstoreRecoverShard](#DagstoreRecoverShard)
 * [Deals](#Deals)
   * [DealsConsiderOfflineRetrievalDeals](#DealsConsiderOfflineRetrievalDeals)
   * [DealsConsiderOfflineStorageDeals](#DealsConsiderOfflineStorageDeals)
@@ -38,6 +44,7 @@
 * [I](#I)
   * [ID](#ID)
 * [Log](#Log)
+  * [LogAlerts](#LogAlerts)
   * [LogList](#LogList)
   * [LogSetLevel](#LogSetLevel)
 * [Market](#Market)
@@ -54,6 +61,7 @@
   * [MarketPendingDeals](#MarketPendingDeals)
   * [MarketPublishPendingDeals](#MarketPublishPendingDeals)
   * [MarketRestartDataTransfer](#MarketRestartDataTransfer)
+  * [MarketRetryPublishDeal](#MarketRetryPublishDeal)
   * [MarketSetAsk](#MarketSetAsk)
   * [MarketSetRetrievalAsk](#MarketSetRetrievalAsk)
 * [Mining](#Mining)
@@ -94,10 +102,13 @@
   * [ReturnSealPreCommit1](#ReturnSealPreCommit1)
   * [ReturnSealPreCommit2](#ReturnSealPreCommit2)
   * [ReturnUnsealPiece](#ReturnUnsealPiece)
+* [Runtime](#Runtime)
+  * [RuntimeSubsystems](#RuntimeSubsystems)
 * [Sealing](#Sealing)
   * [SealingAbort](#SealingAbort)
   * [SealingSchedDiag](#SealingSchedDiag)
 * [Sector](#Sector)
+  * [SectorAddPieceToAny](#SectorAddPieceToAny)
   * [SectorCommitFlush](#SectorCommitFlush)
   * [SectorCommitPending](#SectorCommitPending)
   * [SectorGetExpectedSealDuration](#SectorGetExpectedSealDuration)
@@ -118,6 +129,7 @@
   * [SectorsRefs](#SectorsRefs)
   * [SectorsStatus](#SectorsStatus)
   * [SectorsSummary](#SectorsSummary)
+  * [SectorsUnsealPiece](#SectorsUnsealPiece)
   * [SectorsUpdate](#SectorsUpdate)
 * [Storage](#Storage)
   * [StorageAddLocal](#StorageAddLocal)
@@ -227,6 +239,7 @@ Response:
   "PreCommitControl": null,
   "CommitControl": null,
   "TerminateControl": null,
+  "DealPublishControl": null,
   "DisableOwnerFallback": true,
   "DisableWorkerFallback": true
 }
@@ -330,6 +343,114 @@ the path specified when calling CreateBackup is within the base path
 
 
 Perms: admin
+
+Inputs:
+```json
+[
+  "string value"
+]
+```
+
+Response: `{}`
+
+## Dagstore
+
+
+### DagstoreGC
+DagstoreGC runs garbage collection on the DAG store.
+
+
+Perms: admin
+
+Inputs: `null`
+
+Response: `null`
+
+### DagstoreInitializeAll
+DagstoreInitializeAll initializes all uninitialized shards in bulk,
+according to the policy passed in the parameters.
+
+It is recommended to set a maximum concurrency to avoid extreme
+IO pressure if the storage subsystem has a large amount of deals.
+
+It returns a stream of events to report progress.
+
+
+Perms: write
+
+Inputs:
+```json
+[
+  {
+    "MaxConcurrency": 123,
+    "IncludeSealed": true
+  }
+]
+```
+
+Response:
+```json
+{
+  "Key": "string value",
+  "Event": "string value",
+  "Success": true,
+  "Error": "string value",
+  "Total": 123,
+  "Current": 123
+}
+```
+
+### DagstoreInitializeShard
+DagstoreInitializeShard initializes an uninitialized shard.
+
+Initialization consists of fetching the shard's data (deal payload) from
+the storage subsystem, generating an index, and persisting the index
+to facilitate later retrievals, and/or to publish to external sources.
+
+This operation is intended to complement the initial migration. The
+migration registers a shard for every unique piece CID, with lazy
+initialization. Thus, shards are not initialized immediately to avoid
+IO activity competing with proving. Instead, shard are initialized
+when first accessed. This method forces the initialization of a shard by
+accessing it and immediately releasing it. This is useful to warm up the
+cache to facilitate subsequent retrievals, and to generate the indexes
+to publish them externally.
+
+This operation fails if the shard is not in ShardStateNew state.
+It blocks until initialization finishes.
+
+
+Perms: write
+
+Inputs:
+```json
+[
+  "string value"
+]
+```
+
+Response: `{}`
+
+### DagstoreListShards
+DagstoreListShards returns information about all shards known to the
+DAG store. Only available on nodes running the markets subsystem.
+
+
+Perms: read
+
+Inputs: `null`
+
+Response: `null`
+
+### DagstoreRecoverShard
+DagstoreRecoverShard attempts to recover a failed shard.
+
+This operation fails if the shard is not in ShardStateErrored state.
+It blocks until recovery finishes. If recovery failed, it returns the
+error.
+
+
+Perms: write
 
 Inputs:
 ```json
@@ -545,6 +666,15 @@ Response: `"12D3KooWGzxzKZYveHXtpG6AsrUJBcWxHBFS2HsEoGTxrMLvKXtf"`
 ## Log
 
 
+### LogAlerts
+
+
+Perms: admin
+
+Inputs: `null`
+
+Response: `null`
+
 ### LogList
 
 
@@ -685,7 +815,6 @@ Response:
   "SlashEpoch": 10101,
   "FastRetrieval": true,
   "Message": "string value",
-  "StoreID": 12,
   "FundsReserved": "0",
   "Ref": {
     "TransferType": "string value",
@@ -704,7 +833,8 @@ Response:
     "Responder": "12D3KooWGzxzKZYveHXtpG6AsrUJBcWxHBFS2HsEoGTxrMLvKXtf",
     "ID": 3
   },
-  "SectorNumber": 9
+  "SectorNumber": 9,
+  "InboundCAR": "string value"
 }
 ```
 
@@ -815,6 +945,22 @@ Inputs:
   3,
   "12D3KooWGzxzKZYveHXtpG6AsrUJBcWxHBFS2HsEoGTxrMLvKXtf",
   true
+]
+```
+
+Response: `{}`
+
+### MarketRetryPublishDeal
+
+
+Perms: admin
+
+Inputs:
+```json
+[
+  {
+    "/": "bafy2bzacea3wsdh6y3a36tb3skempjoxqpuyompjbmfeyf34fi3uy6uue42v4"
+  }
 ]
 ```
 
@@ -1519,6 +1665,28 @@ Inputs:
 
 Response: `{}`
 
+## Runtime
+
+
+### RuntimeSubsystems
+RuntimeSubsystems returns the subsystems that are enabled
+in this instance.
+
+
+Perms: read
+
+Inputs: `null`
+
+Response:
+```json
+[
+  "Mining",
+  "Sealing",
+  "SectorStorage",
+  "Markets"
+]
+```
+
 ## Sealing
 
 
@@ -1559,6 +1727,54 @@ Response: `{}`
 
 ## Sector
 
+
+### SectorAddPieceToAny
+Add piece to an open sector. If no sectors with enough space are open,
+either a new sector will be created, or this call will block until more
+sectors can be created.
+
+
+Perms: admin
+
+Inputs:
+```json
+[
+  1024,
+  {},
+  {
+    "PublishCid": null,
+    "DealID": 5432,
+    "DealProposal": {
+      "PieceCID": {
+        "/": "bafy2bzacea3wsdh6y3a36tb3skempjoxqpuyompjbmfeyf34fi3uy6uue42v4"
+      },
+      "PieceSize": 1032,
+      "VerifiedDeal": true,
+      "Client": "f01234",
+      "Provider": "f01234",
+      "Label": "string value",
+      "StartEpoch": 10101,
+      "EndEpoch": 10101,
+      "StoragePricePerEpoch": "0",
+      "ProviderCollateral": "0",
+      "ClientCollateral": "0"
+    },
+    "DealSchedule": {
+      "StartEpoch": 10101,
+      "EndEpoch": 10101
+    },
+    "KeepUnsealed": true
+  }
+]
+```
+
+Response:
+```json
+{
+  "Sector": 9,
+  "Offset": 1032
+}
+```
 
 ### SectorCommitFlush
 SectorCommitFlush immediately sends a Commit message with sectors aggregated for Commit.
@@ -1820,6 +2036,7 @@ Response:
   "CommR": null,
   "Proof": "Ynl0ZSBhcnJheQ==",
   "Deals": null,
+  "Pieces": null,
   "Ticket": {
     "Value": null,
     "Epoch": 10101
@@ -1859,6 +2076,30 @@ Response:
   "Proving": 120
 }
 ```
+
+### SectorsUnsealPiece
+
+
+Perms: admin
+
+Inputs:
+```json
+[
+  {
+    "ID": {
+      "Miner": 1000,
+      "Number": 9
+    },
+    "ProofType": 8
+  },
+  1040384,
+  1024,
+  null,
+  null
+]
+```
+
+Response: `{}`
 
 ### SectorsUpdate
 

@@ -3,6 +3,7 @@ package kit
 import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/big"
+
 	"github.com/filecoin-project/lotus/build"
 	"github.com/filecoin-project/lotus/chain/types"
 	"github.com/filecoin-project/lotus/chain/wallet"
@@ -25,15 +26,20 @@ type nodeOpts struct {
 	rpc           bool
 	ownerKey      *wallet.Key
 	extraNodeOpts []node.Option
-	optBuilders   []OptBuilder
-	proofType     abi.RegisteredSealProof
+
+	subsystems           MinerSubsystem
+	mainMiner            *TestMiner
+	disableLibp2p        bool
+	optBuilders          []OptBuilder
+	sectorSize           abi.SectorSize
+	maxStagingDealsBytes int64
 }
 
 // DefaultNodeOpts are the default options that will be applied to test nodes.
 var DefaultNodeOpts = nodeOpts{
-	balance:   big.Mul(big.NewInt(100000000), types.NewInt(build.FilecoinPrecision)),
-	sectors:   DefaultPresealsPerBootstrapMiner,
-	proofType: abi.RegisteredSealProof_StackedDrg2KiBV1_1, // default _concrete_ proof type for non-genesis miners (notice the _1) for new actors versions.
+	balance:    big.Mul(big.NewInt(100000000), types.NewInt(build.FilecoinPrecision)),
+	sectors:    DefaultPresealsPerBootstrapMiner,
+	sectorSize: abi.SectorSize(2 << 10), // 2KiB.
 }
 
 // OptBuilder is used to create an option after some other node is already
@@ -42,6 +48,47 @@ type OptBuilder func(activeNodes []*TestFullNode) node.Option
 
 // NodeOpt is a functional option for test nodes.
 type NodeOpt func(opts *nodeOpts) error
+
+func WithAllSubsystems() NodeOpt {
+	return func(opts *nodeOpts) error {
+		opts.subsystems = opts.subsystems.Add(SMarkets)
+		opts.subsystems = opts.subsystems.Add(SMining)
+		opts.subsystems = opts.subsystems.Add(SSealing)
+		opts.subsystems = opts.subsystems.Add(SSectorStorage)
+
+		return nil
+	}
+}
+
+func WithSubsystems(systems ...MinerSubsystem) NodeOpt {
+	return func(opts *nodeOpts) error {
+		for _, s := range systems {
+			opts.subsystems = opts.subsystems.Add(s)
+		}
+		return nil
+	}
+}
+
+func WithMaxStagingDealsBytes(size int64) NodeOpt {
+	return func(opts *nodeOpts) error {
+		opts.maxStagingDealsBytes = size
+		return nil
+	}
+}
+
+func DisableLibp2p() NodeOpt {
+	return func(opts *nodeOpts) error {
+		opts.disableLibp2p = true
+		return nil
+	}
+}
+
+func MainMiner(m *TestMiner) NodeOpt {
+	return func(opts *nodeOpts) error {
+		opts.mainMiner = m
+		return nil
+	}
+}
 
 // OwnerBalance specifies the balance to be attributed to a miner's owner
 // account. Only relevant when creating a miner.
@@ -97,11 +144,13 @@ func ConstructorOpts(extra ...node.Option) NodeOpt {
 	}
 }
 
-// ProofType sets the proof type for this node. If you're using new actor
-// versions, this should be a _1 proof type.
-func ProofType(proofType abi.RegisteredSealProof) NodeOpt {
+// SectorSize sets the sector size for this miner. Start() will populate the
+// corresponding proof type depending on the network version (genesis network
+// version if the Ensemble is unstarted, or the current network version
+// if started).
+func SectorSize(sectorSize abi.SectorSize) NodeOpt {
 	return func(opts *nodeOpts) error {
-		opts.proofType = proofType
+		opts.sectorSize = sectorSize
 		return nil
 	}
 }

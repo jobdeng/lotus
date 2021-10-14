@@ -17,10 +17,9 @@ func TestCCUpgrade(t *testing.T) {
 	kit.QuietMiningLogs()
 
 	for _, height := range []abi.ChainEpoch{
-		-1,   // before
-		162,  // while sealing
-		530,  // after upgrade deal
-		5000, // after
+		-1,  // before
+		162, // while sealing
+		560, // after upgrade deal
 	} {
 		height := height // make linters happy by copying
 		t.Run(fmt.Sprintf("upgrade-%d", height), func(t *testing.T) {
@@ -33,8 +32,7 @@ func runTestCCUpgrade(t *testing.T, upgradeHeight abi.ChainEpoch) {
 	ctx := context.Background()
 	blockTime := 5 * time.Millisecond
 
-	opts := kit.ConstructorOpts(kit.LatestActorsAt(upgradeHeight))
-	client, miner, ens := kit.EnsembleMinimal(t, kit.MockProofs(), opts)
+	client, miner, ens := kit.EnsembleMinimal(t, kit.MockProofs(), kit.LatestActorsAt(upgradeHeight))
 	ens.InterconnectAll().BeginMining(blockTime)
 
 	maddr, err := miner.ActorAddress(ctx)
@@ -61,7 +59,7 @@ func runTestCCUpgrade(t *testing.T, upgradeHeight abi.ChainEpoch) {
 	err = miner.SectorMarkForUpgrade(ctx, sl[0])
 	require.NoError(t, err)
 
-	dh := kit.NewDealHarness(t, client, miner)
+	dh := kit.NewDealHarness(t, client, miner, miner)
 	deal, res, inPath := dh.MakeOnlineDeal(ctx, kit.MakeFullDealParams{
 		Rseed:                        6,
 		SuspendUntilCryptoeconStable: true,
@@ -73,9 +71,13 @@ func runTestCCUpgrade(t *testing.T, upgradeHeight abi.ChainEpoch) {
 
 	{
 		exp, err := client.StateSectorExpiration(ctx, maddr, CC, types.EmptyTSK)
-		require.NoError(t, err)
-		require.NotNil(t, exp)
-		require.Greater(t, 50000, int(exp.OnTime))
+		if err != nil {
+			require.Contains(t, err.Error(), "failed to find sector 3") // already cleaned up
+		} else {
+			require.NoError(t, err)
+			require.NotNil(t, exp)
+			require.Greater(t, 50000, int(exp.OnTime))
+		}
 	}
 	{
 		exp, err := client.StateSectorExpiration(ctx, maddr, Upgraded, types.EmptyTSK)

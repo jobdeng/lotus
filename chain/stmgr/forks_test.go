@@ -17,6 +17,7 @@ import (
 	"github.com/filecoin-project/go-address"
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-state-types/cbor"
+	"github.com/filecoin-project/go-state-types/network"
 
 	builtin0 "github.com/filecoin-project/specs-actors/actors/builtin"
 	init2 "github.com/filecoin-project/specs-actors/v2/actors/builtin/init"
@@ -27,6 +28,7 @@ import (
 	"github.com/filecoin-project/lotus/chain/actors/aerrors"
 	_init "github.com/filecoin-project/lotus/chain/actors/builtin/init"
 	"github.com/filecoin-project/lotus/chain/actors/policy"
+	"github.com/filecoin-project/lotus/chain/consensus/filcns"
 	"github.com/filecoin-project/lotus/chain/gen"
 	. "github.com/filecoin-project/lotus/chain/stmgr"
 	"github.com/filecoin-project/lotus/chain/types"
@@ -119,9 +121,9 @@ func TestForkHeightTriggers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sm, err := NewStateManagerWithUpgradeSchedule(
-		cg.ChainStore(), UpgradeSchedule{{
-			Network: 1,
+	sm, err := NewStateManager(
+		cg.ChainStore(), filcns.NewTipSetExecutor(), cg.StateManager().VMSys(), UpgradeSchedule{{
+			Network: network.Version1,
 			Height:  testForkHeight,
 			Migration: func(ctx context.Context, sm *StateManager, cache MigrationCache, cb ExecMonitor,
 				root cid.Cid, height abi.ChainEpoch, ts *types.TipSet) (cid.Cid, error) {
@@ -156,12 +158,12 @@ func TestForkHeightTriggers(t *testing.T) {
 				}
 
 				return st.Flush(ctx)
-			}}})
+			}}}, cg.BeaconSchedule())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	inv := vm.NewActorRegistry()
+	inv := filcns.NewActorRegistry()
 	inv.Register(nil, testActor{})
 
 	sm.SetVMConstructor(func(ctx context.Context, vmopt *vm.VMOpts) (*vm.VM, error) {
@@ -241,6 +243,19 @@ func TestForkHeightTriggers(t *testing.T) {
 func TestForkRefuseCall(t *testing.T) {
 	logging.SetAllLoggers(logging.LevelInfo)
 
+	for after := 0; after < 3; after++ {
+		for before := 0; before < 3; before++ {
+			// Makes the lints happy...
+			after := after
+			before := before
+			t.Run(fmt.Sprintf("after:%d,before:%d", after, before), func(t *testing.T) {
+				testForkRefuseCall(t, before, after)
+			})
+		}
+	}
+
+}
+func testForkRefuseCall(t *testing.T, nullsBefore, nullsAfter int) {
 	ctx := context.TODO()
 
 	cg, err := gen.NewGenerator()
@@ -248,20 +263,22 @@ func TestForkRefuseCall(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sm, err := NewStateManagerWithUpgradeSchedule(
-		cg.ChainStore(), UpgradeSchedule{{
-			Network:   1,
+	var migrationCount int
+	sm, err := NewStateManager(
+		cg.ChainStore(), filcns.NewTipSetExecutor(), cg.StateManager().VMSys(), UpgradeSchedule{{
+			Network:   network.Version1,
 			Expensive: true,
 			Height:    testForkHeight,
 			Migration: func(ctx context.Context, sm *StateManager, cache MigrationCache, cb ExecMonitor,
 				root cid.Cid, height abi.ChainEpoch, ts *types.TipSet) (cid.Cid, error) {
+				migrationCount++
 				return root, nil
-			}}})
+			}}}, cg.BeaconSchedule())
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	inv := vm.NewActorRegistry()
+	inv := filcns.NewActorRegistry()
 	inv.Register(nil, testActor{})
 
 	sm.SetVMConstructor(func(ctx context.Context, vmopt *vm.VMOpts) (*vm.VM, error) {
@@ -291,32 +308,55 @@ func TestForkRefuseCall(t *testing.T) {
 		GasFeeCap:  types.NewInt(0),
 	}
 
-	for i := 0; i < 50; i++ {
-		ts, err := cg.NextTipSet()
+	nullStart := abi.ChainEpoch(testForkHeight - nullsBefore)
+	nullLength := abi.ChainEpoch(nullsBefore + nullsAfter)
+
+	for i := 0; i < testForkHeight*2; i++ {
+		pts := cg.CurTipset.TipSet()
+		skip := abi.ChainEpoch(0)
+		if pts.Height() == nullStart {
+			skip = nullLength
+		}
+		ts, err := cg.NextTipSetFromMiners(pts, cg.Miners, skip)
 		if err != nil {
 			t.Fatal(err)
 		}
 
+		parentHeight := pts.Height()
+		currentHeight := ts.TipSet.TipSet().Height()
+
+		// CallWithGas calls _at_ the current tipset.
 		ret, err := sm.CallWithGas(ctx, m, nil, ts.TipSet.TipSet())
-		switch ts.TipSet.TipSet().Height() {
-		case testForkHeight, testForkHeight + 1:
+		if parentHeight <= testForkHeight && currentHeight >= testForkHeight {
 			// If I had a fork, or I _will_ have a fork, it should fail.
 			require.Equal(t, ErrExpensiveFork, err)
-		default:
+		} else {
 			require.NoError(t, err)
 			require.True(t, ret.MsgRct.ExitCode.IsSuccess())
 		}
-		// Call just runs on the parent state for a tipset, so we only
-		// expect an error at the fork height.
+
+		// Call always applies the message to the "next block" after the tipset's parent state.
 		ret, err = sm.Call(ctx, m, ts.TipSet.TipSet())
-		switch ts.TipSet.TipSet().Height() {
-		case testForkHeight + 1:
+		if parentHeight == testForkHeight {
 			require.Equal(t, ErrExpensiveFork, err)
-		default:
+		} else {
 			require.NoError(t, err)
 			require.True(t, ret.MsgRct.ExitCode.IsSuccess())
 		}
+
+		// Calls without a tipset should walk back to the last non-fork tipset.
+		// We _verify_ that the migration wasn't run multiple times at the end of the
+		// test.
+		ret, err = sm.CallWithGas(ctx, m, nil, nil)
+		require.NoError(t, err)
+		require.True(t, ret.MsgRct.ExitCode.IsSuccess())
+
+		ret, err = sm.Call(ctx, m, nil)
+		require.NoError(t, err)
+		require.True(t, ret.MsgRct.ExitCode.IsSuccess())
 	}
+	// Make sure we didn't execute the migration multiple times.
+	require.Equal(t, migrationCount, 1)
 }
 
 func TestForkPreMigration(t *testing.T) {
@@ -359,9 +399,9 @@ func TestForkPreMigration(t *testing.T) {
 
 	counter := make(chan struct{}, 10)
 
-	sm, err := NewStateManagerWithUpgradeSchedule(
-		cg.ChainStore(), UpgradeSchedule{{
-			Network: 1,
+	sm, err := NewStateManager(
+		cg.ChainStore(), filcns.NewTipSetExecutor(), cg.StateManager().VMSys(), UpgradeSchedule{{
+			Network: network.Version1,
 			Height:  testForkHeight,
 			Migration: func(ctx context.Context, sm *StateManager, cache MigrationCache, cb ExecMonitor,
 				root cid.Cid, height abi.ChainEpoch, ts *types.TipSet) (cid.Cid, error) {
@@ -448,7 +488,7 @@ func TestForkPreMigration(t *testing.T) {
 					return nil
 				},
 			}}},
-		})
+		}, cg.BeaconSchedule())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -457,7 +497,7 @@ func TestForkPreMigration(t *testing.T) {
 		require.NoError(t, sm.Stop(context.Background()))
 	}()
 
-	inv := vm.NewActorRegistry()
+	inv := filcns.NewActorRegistry()
 	inv.Register(nil, testActor{})
 
 	sm.SetVMConstructor(func(ctx context.Context, vmopt *vm.VMOpts) (*vm.VM, error) {
