@@ -16,7 +16,7 @@ import (
 
 var log = logging.Logger("auto")
 
-var AutoSectorsPledgeInterval = 5 * time.Minute
+var AutoSectorsPledgeInterval = 5 * time.Second
 
 type TasksLimit struct {
 	Assigned int
@@ -235,7 +235,7 @@ loopHost:
 					return err
 				}
 				log.Infof("wokrer: %s starting pledge sector: %d", st.Info.Hostname, sec.ID.Number)
-				time.Sleep(10 * time.Second)
+				time.Sleep(1 * time.Second)
 				continue loopHost
 			}
 		}

@@ -10,9 +10,12 @@ import (
 	"github.com/filecoin-project/lotus/extern/sector-storage/fsutil"
 	"github.com/filecoin-project/lotus/extern/sector-storage/sealtasks"
 	"github.com/filecoin-project/lotus/extern/sector-storage/stores"
+	"github.com/filecoin-project/lotus/extern/storage-sealing/sealiface"
 	"github.com/filecoin-project/lotus/itests/kit"
 	"github.com/filecoin-project/lotus/node"
 	"github.com/filecoin-project/lotus/node/config"
+	"github.com/filecoin-project/lotus/node/modules"
+	"github.com/filecoin-project/lotus/node/modules/dtypes"
 	"github.com/filecoin-project/lotus/node/modules/helpers"
 	"github.com/filecoin-project/lotus/node/repo"
 	minerstorage "github.com/filecoin-project/lotus/storage"
@@ -70,6 +73,16 @@ func TestAutoSectorsPledge(t *testing.T) {
 			scfg.Storage.AllowUnseal = false
 			scfg.Storage.ResourceFiltering = sectorstorage.ResourceFilteringDisabled
 			return scfg.Storage
+		}),
+
+		node.Override(new(dtypes.GetSealingConfigFunc), func() (dtypes.GetSealingConfigFunc, error) {
+			return func() (out sealiface.Config, err error) {
+				scfg := config.DefaultStorageMiner()
+				scfg.Sealing.BatchPreCommits = false
+				scfg.Sealing.AggregateCommits = false
+				out = modules.ToSealingConfig(scfg)
+				return
+			}, nil
 		}),
 	)
 
