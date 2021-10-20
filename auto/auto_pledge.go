@@ -16,7 +16,7 @@ import (
 
 var log = logging.Logger("auto")
 
-var AutoSectorsPledgeInterval = 5 * time.Second
+var AutoSectorsPledgeInterval = 5 * time.Minute
 
 type TasksLimit struct {
 	Assigned int
