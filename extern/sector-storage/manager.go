@@ -3,15 +3,19 @@ package sectorstorage
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"strconv"
+	"sync"
+
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-multierror"
 	"github.com/ipfs/go-cid"
 	logging "github.com/ipfs/go-log/v2"
 	"github.com/mitchellh/go-homedir"
 	"golang.org/x/xerrors"
-	"io"
-	"net/http"
-	"sync"
 
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/go-statestore"
@@ -127,6 +131,20 @@ func New(ctx context.Context, lstor *stores.Local, stor *stores.Remote, ls store
 		return nil, xerrors.Errorf("creating prover instance: %w", err)
 	}
 
+	nproc := 1
+	eval := os.Getenv("FIL_MOVE_STORAGE_NPROC")
+	if len(eval) > 0 {
+		num, err := strconv.Atoi(eval)
+		if err == nil && num > 0 {
+			nproc = num
+		}
+		//TODO read from fcfs.conf
+	}
+	// if nproc > 128 { // limit
+	// 	nproc = 128
+	// }
+	log.Infof("FIL_MOVE_STORAGE_NPROC: %d", nproc)
+
 	m := &Manager{
 		ls:         ls,
 		storage:    stor,
@@ -138,12 +156,12 @@ func New(ctx context.Context, lstor *stores.Local, stor *stores.Remote, ls store
 
 		Prover: prover,
 
-		work:       mss,
-		callToWork: map[storiface.CallID]WorkID{},
-		callRes:    map[storiface.CallID]chan result{},
-		results:    map[WorkID]result{},
-		waitRes:    map[WorkID]chan struct{}{},
-		movingStorage: make(chan struct{}, 1),
+		work:          mss,
+		callToWork:    map[storiface.CallID]WorkID{},
+		callRes:       map[storiface.CallID]chan result{},
+		results:       map[WorkID]result{},
+		waitRes:       map[WorkID]chan struct{}{},
+		movingStorage: make(chan struct{}, nproc),
 	}
 
 	m.setupWorkTracker()
@@ -214,6 +232,11 @@ func schedNop(context.Context, Worker) error {
 
 func (m *Manager) schedFetch(sector storage.SectorRef, ft storiface.SectorFileType, ptype storiface.PathType, am storiface.AcquireMode) func(context.Context, Worker) error {
 	return func(ctx context.Context, worker Worker) error {
+		host, wkr := "", ""
+		if inf, err := worker.Info(ctx); err == nil {
+			host, wkr = inf.Hostname, inf.WorkerName
+		}
+		log.Infof("Manager.schedFetch - worker: %+v, sector: %d, kind: %s, type: %s, mode: %s", fmt.Sprintf("%s-%s", host, wkr), sector.ID.Number, ptype, ft, am)
 		_, err := m.waitSimpleCall(ctx)(worker.Fetch(ctx, sector, ft, ptype, am))
 		return err
 	}
@@ -570,15 +593,19 @@ func (m *Manager) FinalizeSector(ctx context.Context, sector storage.SectorRef, 
 	m.movingStorage <- struct{}{}
 
 	//不通过fetch方式，直接在sealing的主机上复制sealed文件到存储机
-	err = m.sched.Schedule(ctx, sector, sealtasks.TTFetch, fetchSel,
-		schedNop,
+	err = m.sched.Schedule(ctx, sector, sealtasks.TTFetch, fetchSel, schedNop,
 		//m.schedFetch(sector, storiface.FTCache|storiface.FTSealed|moveUnsealed, storiface.PathStorage, storiface.AcquireMove),
 		func(ctx context.Context, w Worker) error {
+			host, wkr := "", ""
+			if inf, err := w.Info(ctx); err == nil {
+				host, wkr = inf.Hostname, inf.WorkerName
+			}
+			log.Infof("moving storage - miner: %v, host: %s, worker: %s, sector: %s", sector.ID.Miner, host, wkr, sector.ID.Number)
 			_, err := m.waitSimpleCall(ctx)(w.MoveStorage(ctx, sector, storiface.FTCache|storiface.FTSealed|moveUnsealed))
 			return err
 		})
 	log.Infof("worker move storage finished, release lock!")
-	<-m.movingStorage	//释放
+	<-m.movingStorage //释放
 	if err != nil {
 		return xerrors.Errorf("moving sector to storage: %w", err)
 	}

@@ -508,7 +508,7 @@ func (st *Local) acquireSector(ctx context.Context, sid storage.SectorRef, exist
 		}
 
 		if best == "" {
-			return storiface.SectorPaths{}, storiface.SectorPaths{}, xerrors.Errorf("couldn't find a suitable path for a sector")
+			return storiface.SectorPaths{}, storiface.SectorPaths{}, xerrors.Errorf("couldn't find a suitable path for the sector: %+v", sid)
 		}
 
 		storiface.SetPathByType(&out, fileType, best)
@@ -733,17 +733,18 @@ func (st *Local) MoveStorage(ctx context.Context, s storage.SectorRef, types sto
 			continue
 		}
 
-		log.Debugf("moving %v(%d) to storage: %s(se:%t; st:%t) -> %s(se:%t; st:%t)", s, fileType, sst.ID, sst.CanSeal, sst.CanStore, dst.ID, dst.CanSeal, dst.CanStore)
-
+		log.Infof("Local.MoveStorage - dropping source sector %v(%s) from index", s, fileType.String())
 		if err := st.index.StorageDropSector(ctx, ID(storiface.PathByType(srcIds, fileType)), s.ID, fileType); err != nil {
 			return xerrors.Errorf("dropping source sector from index: %w", err)
 		}
 
+		log.Infof("Local.MoveStorage -  moving %v(%d) to storage: %s(se:%t; st:%t) -> %s(se:%t; st:%t)", s, fileType, sst.ID, sst.CanSeal, sst.CanStore, dst.ID, dst.CanSeal, dst.CanStore)
 		if err := move(storiface.PathByType(src, fileType), storiface.PathByType(dest, fileType)); err != nil {
 			// TODO: attempt some recovery (check if src is still there, re-declare)
 			return xerrors.Errorf("moving sector %v(%d): %w", s, fileType, err)
 		}
 
+		log.Infof("Local.MoveStorage - declaring destination sector %v(%s) in index", s, fileType.String())
 		if err := st.index.StorageDeclareSector(ctx, ID(storiface.PathByType(destIds, fileType)), s.ID, fileType, true); err != nil {
 			return xerrors.Errorf("declare sector %d(t:%d) -> %s: %w", s, fileType, ID(storiface.PathByType(destIds, fileType)), err)
 		}

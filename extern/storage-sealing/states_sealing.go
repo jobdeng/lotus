@@ -59,6 +59,8 @@ func (m *Sealing) handlePacking(ctx statemachine.Context, sector SectorInfo) err
 
 	ubytes := abi.PaddedPieceSize(ssize).Unpadded()
 
+	log.Infow("handlePacking - sector: %d, size: %v, bytes: %v, allocated: %v", sector.SectorNumber, ssize, ubytes, allocated)
+
 	if allocated > ubytes {
 		return xerrors.Errorf("too much data in sector: %d > %d", allocated, ubytes)
 	}
@@ -77,6 +79,8 @@ func (m *Sealing) handlePacking(ctx statemachine.Context, sector SectorInfo) err
 		return xerrors.Errorf("filling up the sector (%v): %w", fillerSizes, err)
 	}
 
+	log.Infow("handlePacking - sector: %d, pieces: %+v", sector.SectorNumber, fillerPieces)
+
 	return ctx.Send(SectorPacked{FillerPieces: fillerPieces})
 }
 
@@ -85,7 +89,7 @@ func (m *Sealing) padSector(ctx context.Context, sectorID storage.SectorRef, exi
 		return nil, nil
 	}
 
-	log.Infof("Pledge %d, contains %+v", sectorID, existingPieceSizes)
+	log.Infof("padSector - sector: %d, existing: %+v, fillers: %+v", sectorID, existingPieceSizes, sizes)
 
 	out := make([]abi.PieceInfo, len(sizes))
 	for i, size := range sizes {

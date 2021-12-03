@@ -2,9 +2,10 @@ package main
 
 import (
 	"fmt"
-	"github.com/filecoin-project/lotus/auto"
 	_ "net/http/pprof"
 	"os"
+
+	"github.com/filecoin-project/lotus/auto"
 
 	"github.com/filecoin-project/lotus/api/v1api"
 
@@ -54,11 +55,22 @@ var runCmd = &cli.Command{
 			Name:  "auto-pledge",
 			Usage: "automatically execute sectors pledge",
 		},
+		&cli.UintFlag{
+			Name:  "move-storage-nproc",
+			Usage: "number of processes to mvoe storage simultaneously [env=FIL_MOVE_STORAGE_NPROC]",
+		},
 	},
 	Action: func(cctx *cli.Context) error {
 		if !cctx.Bool("enable-gpu-proving") {
 			err := os.Setenv("BELLMAN_NO_GPU", "true")
 			if err != nil {
+				return err
+			}
+		}
+
+		nproc := cctx.Uint("move-storage-nproc")
+		if nproc > 0 {
+			if err := os.Setenv("FIL_MOVE_STORAGE_NPROC", fmt.Sprintf("%d", nproc)); err != nil {
 				return err
 			}
 		}

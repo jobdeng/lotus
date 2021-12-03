@@ -177,6 +177,28 @@ var runCmd = &cli.Command{
 			Usage: "set worker's name",
 			Value: "",
 		},
+		&cli.StringFlag{
+			Name:  "template-store",
+			Usage: "the path storing sealing templats [env=TEMPLATE_STORE], e.g. unsealed sector (unsealed.dat), merkle tree (tree_d.dat)",
+			Value: "", //"/mnt/md0/lotus/worker/template",
+			//Required: true,
+		},
+		&cli.StringFlag{
+			Name:  "sealing-pipelines",
+			Usage: "the sealing pipelines [env=SEALING_PIPELINES], separated by comma, to which the worker would join, default to the host address",
+			Value: "",
+		},
+		&cli.StringFlag{
+			Name:  "sealed-stores",
+			Usage: "the paths [env=SEALED_STORES], separated by comma, to store sealed sectors, e.g. pointing to miner storages",
+			Value: "", //"/mnt/fcfs",
+			//Required: true,
+		},
+		&cli.StringFlag{
+			Name:  "work-store",
+			Usage: "the path, [env=WORK_STORE], to store scheduled works",
+			Value: "",
+		},
 	},
 	Before: func(cctx *cli.Context) error {
 		if cctx.IsSet("address") {
@@ -197,13 +219,76 @@ var runCmd = &cli.Command{
 			}
 		}
 
+		// The template store is only useful for tasks: AP, P1, P2.
+		if cctx.Bool("addpiece") || cctx.Bool("precommit1") || cctx.Bool("precommit2") {
+			tstore := cctx.String("template-store")
+			if len(tstore) == 0 {
+				tstore = os.Getenv("TEMPLATE_STORE")
+			}
+			if len(tstore) == 0 {
+				return xerrors.Errorf("neither argument `--template-store` nor envar `TEMPLATE_STORE` is set")
+			}
+			if _, err := os.Stat(tstore); err != nil /*os.IsNotExist(err)*/ {
+				return xerrors.Errorf("template store (%s) is invalid", tstore)
+			}
+			if err := os.Setenv("TEMPLATE_STORE", tstore); err != nil {
+				return err
+			}
+			log.Infof("TEMPLATE_STORE: %s", os.Getenv("TEMPLATE_STORE"))
+		}
+
+		// sealing pipelines
+		plines := cctx.String("sealing-pipelines")
+		if len(plines) == 0 {
+			plines = os.Getenv("SEALING_PIPELINES")
+		}
+		if len(plines) == 0 {
+			plines = "" //TODO get ip address
+		}
+		plines = envToString(envToArray(plines))
+		if err := os.Setenv("SEALING_PIPELINES", plines); err != nil {
+			return err
+		}
+		log.Infof("SEALING_PIPELINES: %s", os.Getenv("SEALING_PIPELINES"))
+
+		// sealed stores
+		sstores := cctx.String("sealed-stores")
+		if len(sstores) == 0 {
+			sstores = os.Getenv("SEALED_STORES")
+		}
+		paths := envToArray(sstores)
+		if len(paths) == 0 {
+			return xerrors.Errorf("neither argument `--sealed-stores` nor envar `SEALED_STORES` is set")
+		}
+		for _, path := range paths {
+			if _, err := os.Stat(path); err != nil {
+				return xerrors.Errorf("the path (%s) specified in argument `--sealed-stores` or envar `SEALED_STORES` is invalid: %v", path, err)
+			}
+		}
+		if err := os.Setenv("SEALED_STORES", envToString(paths)); err != nil {
+			return err
+		}
+		log.Infof("SEALED_STORES: %s", os.Getenv("SEALED_STORES"))
+
+		// work store
+		wstore := cctx.String("work-store")
+		if len(wstore) == 0 {
+			wstore = os.Getenv("WORK_STORE")
+		}
+		if len(wstore) == 0 {
+			return xerrors.Errorf("neither argument `--work-store` nor envar `WORK_STORE` is set")
+		}
+		if _, err := os.Stat(wstore); err != nil {
+			return xerrors.Errorf("the path (%s) specified in argument --`work-store` or envar `WORK_STORE` is invalid: %v", wstore, err)
+		}
+
 		// Connect to storage-miner
 		ctx := lcli.ReqContext(cctx)
 
 		var nodeApi api.StorageMiner
 		var closer func()
 		var err error
-		for {	//建立连接miner-api的客户端
+		for { //建立连接miner-api的客户端
 			nodeApi, closer, err = lcli.GetStorageMinerAPI(cctx, cliutil.StorageMinerUseHttp)
 			if err == nil {
 				_, err = nodeApi.Version(ctx)
@@ -531,7 +616,7 @@ var runCmd = &cli.Command{
 
 					select {
 					case <-readyCh:
-						if err := nodeApi.WorkerConnect(ctx, "http://"+address+"/rpc/v0"); err != nil {	//work发起与miner连接
+						if err := nodeApi.WorkerConnect(ctx, "http://"+address+"/rpc/v0"); err != nil { //work发起与miner连接
 							log.Errorf("Registering worker failed: %+v", err)
 							cancel()
 							return
@@ -578,4 +663,21 @@ func extractRoutableIP(timeout time.Duration) (string, error) {
 	localAddr := conn.LocalAddr().(*net.TCPAddr)
 
 	return strings.Split(localAddr.IP.String(), ":")[0], nil
+}
+
+func envToArray(str string) []string {
+	ary := make([]string, 0)
+	if len(str) == 0 {
+		return ary
+	}
+	for _, val := range strings.Split(str, ",") {
+		val = strings.TrimSpace(val)
+		if len(val) > 0 {
+			ary = append(ary, val)
+		}
+	}
+	return ary
+}
+func envToString(strs []string) string {
+	return strings.Join(strs, ",")
 }

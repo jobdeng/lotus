@@ -226,7 +226,7 @@ func (r *Remote) acquireFromRemote(ctx context.Context, s abi.SectorID, fileType
 }
 
 func (r *Remote) fetch(ctx context.Context, url, outname string) error {
-	log.Infof("Fetch %s -> %s", url, outname)
+	log.Infof("Remote.fetch %s -> %s", url, outname)
 
 	if len(r.limit) >= cap(r.limit) {
 		log.Infof("Throttling fetch, %d already running", len(r.limit))

@@ -63,6 +63,8 @@ type LocalWorker struct {
 	testDisable int64
 	closing     chan struct{}
 	name        string
+
+	//wsched *workSched
 }
 
 func newLocalWorker(executor ExecutorFunc, wcfg WorkerConfig, store stores.Store, local *stores.Local, sindex stores.SectorIndex, ret storiface.WorkerReturn, cst *statestore.StateStore, name string) *LocalWorker {
@@ -86,7 +88,7 @@ func newLocalWorker(executor ExecutorFunc, wcfg WorkerConfig, store stores.Store
 		ignoreResources: wcfg.IgnoreResourceFiltering,
 		session:         uuid.New(),
 		closing:         make(chan struct{}),
-		name:    name,
+		name:            name,
 	}
 
 	if w.executor == nil {
@@ -112,6 +114,16 @@ func newLocalWorker(executor ExecutorFunc, wcfg WorkerConfig, store stores.Store
 			}
 		}
 	}()
+
+	wsched := newWorkSched(w)
+	if wsched == nil {
+		log.Errorf("failed to initialize work scheduler")
+		return nil
+	}
+	if err := wsched.startWorks(); err != nil {
+		log.Errorf("failed to start work scheduling: %v", err)
+		return nil
+	}
 
 	return w
 }
@@ -313,12 +325,24 @@ func (l *LocalWorker) AddPiece(ctx context.Context, sector storage.SectorRef, ep
 	}
 
 	return l.asyncCall(ctx, sector, AddPiece, func(ctx context.Context, ci storiface.CallID) (interface{}, error) {
-		return sb.AddPiece(ctx, sector, epcs, sz, r)
+		log.Infof("LocalWorker.AddPiece - secotr: %v, epcs: %+v, sz: %v", sector.ID.Number, epcs, sz)
+		piece, err := sb.AddPiece(ctx, sector, epcs, sz, r)
+		log.Infof("LocalWorker.AddPiece - sector: %v, piece: %+v, error: %v", sector.ID.Number, piece, err)
+		return piece, err
 	})
+
+	// return submitWork(sector, AddPiece, func(ctx context.Context, meta *WorkMeta) (interface{}, error) {
+	// 	epcs := meta.Params[0].([]abi.UnpaddedPieceSize)
+	// 	sz := meta.Params[1].(abi.UnpaddedPieceSize)
+	// 	r := meta.Params[2].(io.Reader)
+	// 	return l.executor().addpiece(epcs, sz, r)
+	// }, epcs, sz, r)
+
 }
 
 func (l *LocalWorker) Fetch(ctx context.Context, sector storage.SectorRef, fileType storiface.SectorFileType, ptype storiface.PathType, am storiface.AcquireMode) (storiface.CallID, error) {
 	return l.asyncCall(ctx, sector, Fetch, func(ctx context.Context, ci storiface.CallID) (interface{}, error) {
+		log.Infof("LocalWorker.Fetch - sector: %+v, kind: %s, type: %s, mode: %s, call: %s", sector.ID, ptype, fileType, ci)
 		_, done, err := (&localWorkerPathProvider{w: l, op: am}).AcquireSector(ctx, sector, fileType, storiface.FTNone, ptype)
 		if err == nil {
 			done()
@@ -520,7 +544,7 @@ func (l *LocalWorker) Info(context.Context) (storiface.WorkerInfo, error) {
 			CPUs:        uint64(runtime.NumCPU()),
 			GPUs:        gpus,
 		},
-		WorkerName: l.name,
+		WorkerName:  l.name,
 		AcceptTasks: l.acceptTasks,
 	}, nil
 }

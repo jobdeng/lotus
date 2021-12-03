@@ -17,6 +17,10 @@ import (
 )
 
 func (m *Sealing) Plan(events []statemachine.Event, user interface{}) (interface{}, uint64, error) {
+	secInfo := user.(*SectorInfo)
+	//m.logEvents(events, secInfo)
+	log.Infof("fsm is planning for sector: %d, state: %s", secInfo.SectorNumber, secInfo.State)
+
 	next, processed, err := m.plan(events, user.(*SectorInfo))
 	if err != nil || next == nil {
 		return nil, processed, err
