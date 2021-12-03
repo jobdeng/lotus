@@ -37,7 +37,7 @@ type ErrCommitWaitFailed struct{ error }
 
 func checkPieces(ctx context.Context, maddr address.Address, si SectorInfo, api SealingAPI) error {
 	tok, height, err := api.ChainHead(ctx)
-	log.Infof("checks.checkPieces - address: %v, sector: %d, pieces: %+v, commd: %v, commr: %v", maddr, si.SectorNumber, si.Pieces, si.CommD, si.CommR)
+	log.Infof("checks.checkPieces - address: %v, sector: %d, state: %s, pieces: %+v, commd: %v, commr: %v", maddr, si.SectorNumber, si.State, si.Pieces, si.CommD, si.CommR)
 	if err != nil {
 		return &ErrApi{xerrors.Errorf("getting chain head: %w", err)}
 	}
@@ -81,6 +81,7 @@ func checkPieces(ctx context.Context, maddr address.Address, si SectorInfo, api 
 // checkPrecommit checks that data commitment generated in the sealing process
 //  matches pieces, and that the seal ticket isn't expired
 func checkPrecommit(ctx context.Context, maddr address.Address, si SectorInfo, tok TipSetToken, height abi.ChainEpoch, api SealingAPI) (err error) {
+	log.Infof("checks.checkPrecommit - address: %v, sector: %d, state: %s, pieces: %+v, commd: %v, commr: %v, tipset: %s, epoch: %d", maddr, si.SectorNumber, si.State, si.Pieces, si.CommD, si.CommR, tok, height)
 	if err := checkPieces(ctx, maddr, si, api); err != nil {
 		return err
 	}
@@ -121,6 +122,7 @@ func checkPrecommit(ctx context.Context, maddr address.Address, si SectorInfo, t
 }
 
 func (m *Sealing) checkCommit(ctx context.Context, si SectorInfo, proof []byte, tok TipSetToken) (err error) {
+	log.Infof("checks.checkCommit - sector: %d, state: %s, pieces: %+v, commd: %v, commr: %v, proof: %s, tipset: %s", si.SectorNumber, si.State, si.Pieces, si.CommD, si.CommR, proof, tok)
 	if si.SeedEpoch == 0 {
 		return &ErrBadSeed{xerrors.Errorf("seed epoch was not set")}
 	}
