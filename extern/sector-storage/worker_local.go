@@ -120,6 +120,8 @@ func newLocalWorker(executor ExecutorFunc, wcfg WorkerConfig, store stores.Store
 		log.Errorf("failed to initialize work scheduler")
 		return nil
 	}
+	wstore := wsched.workStore()
+	log.Infof("work scheduler is using store: %s", wstore)
 	if err := wsched.startWorks(); err != nil {
 		log.Errorf("failed to start work scheduling: %v", err)
 		return nil

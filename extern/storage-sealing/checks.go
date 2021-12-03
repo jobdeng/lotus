@@ -37,6 +37,7 @@ type ErrCommitWaitFailed struct{ error }
 
 func checkPieces(ctx context.Context, maddr address.Address, si SectorInfo, api SealingAPI) error {
 	tok, height, err := api.ChainHead(ctx)
+	log.Infof("checks.checkPieces - address: %v, sector: %d, pieces: %+v, commd: %v, commr: %v", maddr, si.SectorNumber, si.Pieces, si.CommD, si.CommR)
 	if err != nil {
 		return &ErrApi{xerrors.Errorf("getting chain head: %w", err)}
 	}
