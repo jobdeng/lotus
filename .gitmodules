@@ -1,6 +1,6 @@
 [submodule "extern/filecoin-ffi"]
 	path = extern/filecoin-ffi
-	url = https://github.com/jobdeng/filecoin-ffi
+	url = https://github.com/jobdeng/filecoin-ffi.git
 	branch = job/v0.30.3
 [submodule "extern/serialization-vectors"]
 	path = extern/serialization-vectors

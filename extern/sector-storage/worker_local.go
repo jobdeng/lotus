@@ -327,12 +327,13 @@ func (l *LocalWorker) AddPiece(ctx context.Context, sector storage.SectorRef, ep
 	}
 
 	return l.asyncCall(ctx, sector, AddPiece, func(ctx context.Context, ci storiface.CallID) (interface{}, error) {
-		log.Infof("LocalWorker.AddPiece - secotr: %v, epcs: %+v, sz: %v", sector.ID.Number, epcs, sz)
+		log.Infof("LocalWorker.AddPiece - secotr: %v, epcs: %+v, sz: %+v", sector.ID.Number, epcs, sz)
 		piece, err := sb.AddPiece(ctx, sector, epcs, sz, r)
 		log.Infof("LocalWorker.AddPiece - sector: %v, piece: %+v, error: %v", sector.ID.Number, piece, err)
 		return piece, err
 	})
 
+	//@job@
 	// return submitWork(sector, AddPiece, func(ctx context.Context, meta *WorkMeta) (interface{}, error) {
 	// 	epcs := meta.Params[0].([]abi.UnpaddedPieceSize)
 	// 	sz := meta.Params[1].(abi.UnpaddedPieceSize)

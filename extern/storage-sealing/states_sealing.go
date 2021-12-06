@@ -89,13 +89,15 @@ func (m *Sealing) padSector(ctx context.Context, sectorID storage.SectorRef, exi
 		return nil, nil
 	}
 
-	log.Infof("padSector - sector: %d, existing: %+v, fillers: %+v", sectorID, existingPieceSizes, sizes)
+	log.Infof("padSector - sector: %d, existing: %+v, fillers: %+v", sectorID.ID.Number, existingPieceSizes, sizes)
 
 	out := make([]abi.PieceInfo, len(sizes))
 	for i, size := range sizes {
 		expectCid := zerocomm.ZeroPieceCommitment(size)
+		log.Infof("padSector - [ZeroPieceCommitment] sector: %d, piece[%d]{ UnpaddedSize: %d, PieceCID: %+v }", sectorID.ID.Number, i, size, expectCid)
 
 		ppi, err := m.sealer.AddPiece(ctx, sectorID, existingPieceSizes, size, NewNullReader(size))
+		log.Infof("padSector - [AddPiece] sector: %d, piece[%d]{ UnpaddedSize: %d, PieceCID: %+v }, info: %+v", sectorID.ID.Number, i, size, expectCid, ppi)
 		if err != nil {
 			return nil, xerrors.Errorf("add piece: %w", err)
 		}
