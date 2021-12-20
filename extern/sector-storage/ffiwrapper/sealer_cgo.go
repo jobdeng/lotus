@@ -48,7 +48,7 @@ func (sb *Sealer) NewSector(ctx context.Context, sector storage.SectorRef) error
 
 func (sb *Sealer) AddPiece(ctx context.Context, sector storage.SectorRef, existingPieceSizes []abi.UnpaddedPieceSize, pieceSize abi.UnpaddedPieceSize, file storage.Data) (abi.PieceInfo, error) {
 	{ //@job@
-		log.Infof("Sealer.AddPiece [START] - sector: %d, existingPieceSizes: %+v, pieceSize: %+v", sector.ID.Number, pieceSize)
+		log.Infof("Sealer.AddPiece [START] - sector: %d, existingPieceSizes: %+v, pieceSize: %+v", sector.ID.Number, existingPieceSizes, pieceSize)
 		//32GiB - for testing
 		var fsz uint64 = 34359738368 //32-GiB
 		ssz, err := sector.ProofType.SectorSize()
