@@ -5,7 +5,6 @@ package ffiwrapper
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"io"
 	"math/bits"
@@ -21,7 +20,6 @@ import (
 	"github.com/filecoin-project/go-state-types/abi"
 	"github.com/filecoin-project/specs-storage/storage"
 
-	commpffi "github.com/filecoin-project/go-commp-utils/ffiwrapper"
 	"github.com/filecoin-project/go-commp-utils/zerocomm"
 	"github.com/filecoin-project/lotus/extern/sector-storage/fr32"
 	"github.com/filecoin-project/lotus/extern/sector-storage/partialfile"
@@ -29,6 +27,8 @@ import (
 )
 
 var _ Storage = &Sealer{}
+
+//var log = logging.Logger("sealer")
 
 func New(sectors SectorProvider) (*Sealer, error) {
 	sb := &Sealer{
@@ -48,10 +48,17 @@ func (sb *Sealer) NewSector(ctx context.Context, sector storage.SectorRef) error
 
 func (sb *Sealer) AddPiece(ctx context.Context, sector storage.SectorRef, existingPieceSizes []abi.UnpaddedPieceSize, pieceSize abi.UnpaddedPieceSize, file storage.Data) (abi.PieceInfo, error) {
 	{ //@job@
-		log.Infof("Sealer.AddPiece - sector: %d, existingPieceSizes: %+v, pieceSize: %+v", sector.ID.Number, pieceSize)
+		log.Infof("Sealer.AddPiece [START] - sector: %d, existingPieceSizes: %+v, pieceSize: %+v", sector.ID.Number, pieceSize)
 		//32GiB - for testing
-		var size uint64 = 34359738368 //32-GiB
+		var fsz uint64 = 34359738368 //32-GiB
+		ssz, err := sector.ProofType.SectorSize()
+		if err != nil {
+			return abi.PieceInfo{}, err
+		}
+		psz := abi.PaddedPieceSize(ssz)
 		var pcid string = "baga6ea4seaqao7s73y24kcutaosvacpdjgfe5pw76ooefnyqw4ynr3d2y6x2mpq"
+		log.Infof("Sealer.AddPiece - sector: %d, fixedSize: %d, sectorSize: %d, paddedSize: %d, encPieceCID: %s", sector.ID.Number, fsz, ssz, psz, pcid)
+
 		paths, done, err := sb.sectors.AcquireSector(ctx, sector, 0, storiface.FTUnsealed, storiface.PathSealing)
 		if err != nil {
 			return abi.PieceInfo{}, xerrors.Errorf("Sealer.AddPiece - acquire unsealed sector: %d, error: %v", sector.ID.Number, err)
@@ -69,8 +76,9 @@ func (sb *Sealer) AddPiece(ctx context.Context, sector storage.SectorRef, existi
 		if err != nil {
 			return abi.PieceInfo{}, err
 		}
+		log.Infof("Sealer.AddPiece [END] - sector: %d, decPieceCID: %+v", sector.ID.Number, addr)
 		return abi.PieceInfo{
-			Size:     abi.PaddedPieceSize(size), //32GiB
+			Size:     abi.PaddedPieceSize(psz), //32GiB
 			PieceCID: addr,
 		}, nil
 		//
@@ -264,6 +272,7 @@ func (sb *Sealer) AddPiece(ctx context.Context, sector storage.SectorRef, existi
 	*/
 }
 
+/*
 func (sb *Sealer) pieceCid(spt abi.RegisteredSealProof, in []byte) (cid.Cid, error) {
 	prf, werr, err := commpffi.ToReadableFile(bytes.NewReader(in), int64(len(in)))
 	if err != nil {
@@ -279,6 +288,7 @@ func (sb *Sealer) pieceCid(spt abi.RegisteredSealProof, in []byte) (cid.Cid, err
 
 	return pieceCID, werr()
 }
+*/
 
 func (sb *Sealer) UnsealPiece(ctx context.Context, sector storage.SectorRef, offset storiface.UnpaddedByteIndex, size abi.UnpaddedPieceSize, randomness abi.SealRandomness, commd cid.Cid) error {
 	ssize, err := sector.ProofType.SectorSize()
@@ -521,7 +531,7 @@ func (sb *Sealer) SealPreCommit1(ctx context.Context, sector storage.SectorRef, 
 		if os.IsExist(err) {
 			log.Warnf("existing cache in %s; removing", paths.Cache)
 
-			if err := os.RemoveAll(paths.Cache); err != nil {
+			if err := os.RemoveAll(paths.Cache); err != nil { //@job@ TODO only remove files that might be imcomplete, e.g., the last one ...
 				return nil, xerrors.Errorf("remove existing sector cache from %s (sector %d): %w", paths.Cache, sector, err)
 			}
 
@@ -532,7 +542,7 @@ func (sb *Sealer) SealPreCommit1(ctx context.Context, sector storage.SectorRef, 
 			return nil, err
 		}
 	}
-
+	/* @job@ unnecessary checking
 	var sum abi.UnpaddedPieceSize
 	for _, piece := range pieces {
 		sum += piece.Size.Unpadded()
@@ -545,7 +555,7 @@ func (sb *Sealer) SealPreCommit1(ctx context.Context, sector storage.SectorRef, 
 	if sum != ussize {
 		return nil, xerrors.Errorf("aggregated piece sizes don't match sector size: %d != %d (%d)", sum, ussize, int64(ussize-sum))
 	}
-
+	*/
 	// TODO: context cancellation respect
 	p1o, err := ffi.SealPreCommitPhase1(
 		sector.ProofType,
